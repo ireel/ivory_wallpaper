@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ivory Wallpaper</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="background-layer" id="backgroundLayer"></div>
+    <div class="vignette"></div>
+    <div class="desktop-grid-overlay" id="desktopGrid"></div>
+
+    <header class="hud-controls">
+      <button id="openBackgroundModal" class="btn btn-primary" type="button">更换背景</button>
+      <button id="toggleGridPanel" class="btn btn-ghost" type="button">网格微调</button>
+      <button id="exportConfigBtn" class="btn btn-ghost" type="button">保存配置</button>
+      <label for="configUpload" class="btn btn-ghost">加载配置</label>
+      <input id="configUpload" type="file" accept="application/json" />
+      <button id="resetDataBtn" class="btn btn-ghost" type="button">重置备忘录/Todo</button>
+    </header>
+
+    <aside class="grid-panel is-hidden" id="gridPanel" aria-label="网格微调面板">
+      <p class="panel-title">桌面单元格</p>
+      <p class="panel-tip">参数以基准分辨率保存，切换分辨率会同比换算，并自动考虑系统缩放。</p>
+      <label class="field">
+        <span>单元格宽度(px)</span>
+        <input id="gridCellWidth" type="number" min="40" max="180" />
+      </label>
+      <label class="field">
+        <span>单元格高度(px)</span>
+        <input id="gridCellHeight" type="number" min="40" max="220" />
+      </label>
+      <label class="field">
+        <span>水平偏移(px)</span>
+        <input id="gridOffsetX" type="number" min="-400" max="400" />
+      </label>
+      <label class="field">
+        <span>垂直偏移(px)</span>
+        <input id="gridOffsetY" type="number" min="-400" max="400" />
+      </label>
+      <label class="field">
+        <span>网格透明度(0-1)</span>
+        <input id="gridOpacity" type="number" min="0" max="1" step="0.05" />
+      </label>
+      <label class="field">
+        <span>基准宽度(px)</span>
+        <input id="gridBaseWidth" type="number" min="800" max="8000" />
+      </label>
+      <label class="field">
+        <span>基准高度(px)</span>
+        <input id="gridBaseHeight" type="number" min="600" max="5000" />
+      </label>
+      <p class="panel-tip" id="gridRuntimeHint">当前分辨率换算值: --</p>
+      <button id="resetGridBtn" class="btn btn-mini" type="button">恢复默认网格</button>
+    </aside>
+
+    <section class="widget clock-widget" aria-label="时间区块">
+      <p class="widget-title">TIME</p>
+      <p class="time-value" id="timeValue">00:00:00</p>
+      <p class="date-value" id="dateValue">2026/01/01 星期四</p>
+    </section>
+
+    <section class="widget productivity-widget" aria-label="备忘录与待办区块">
+      <div class="widget-header">
+        <p class="widget-title">MARKDOWN MEMO + TODO</p>
+        <div class="switch-group">
+          <button id="memoEditBtn" class="btn btn-mini is-active" type="button">编辑</button>
+          <button id="memoPreviewBtn" class="btn btn-mini" type="button">预览</button>
+        </div>
+      </div>
+
+      <div class="productivity-body">
+        <section class="memo-panel">
+          <textarea id="memoInput" class="memo-input" spellcheck="false"></textarea>
+          <article id="memoPreview" class="memo-preview is-hidden"></article>
+        </section>
+
+        <section class="todo-panel">
+          <p class="todo-title">TODO LIST</p>
+          <form id="todoForm" class="todo-form">
+            <input id="todoInput" type="text" maxlength="120" placeholder="输入待办事项后按 Enter" />
+            <button class="btn btn-mini" type="submit">添加</button>
+          </form>
+          <ul id="todoList" class="todo-list"></ul>
+        </section>
+      </div>
+    </section>
+
+    <div class="modal is-hidden" id="backgroundModal" role="dialog" aria-modal="true" aria-labelledby="backgroundModalTitle">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="backgroundModalTitle">选择背景</h2>
+          <button id="closeBackgroundModal" class="btn btn-mini" type="button">关闭</button>
+        </div>
+        <div class="background-options" id="backgroundOptions"></div>
+        <div class="upload-row">
+          <label for="backgroundUpload" class="btn btn-primary">上传本地图片</label>
+          <input id="backgroundUpload" type="file" accept="image/*" />
+        </div>
+      </div>
+    </div>
+
+    <template id="todoTemplate">
+      <li class="todo-item">
+        <label class="todo-main">
+          <input class="todo-checkbox" type="checkbox" />
+          <span class="todo-text"></span>
+        </label>
+        <button class="todo-remove" type="button" aria-label="删除待办">删除</button>
+      </li>
+    </template>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
