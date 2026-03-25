@@ -580,26 +580,32 @@ fn attach_window_to_desktop_host(
     use tao::platform::windows::WindowExtWindows;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_STYLE, GetWindowLongW, SWP_NOZORDER, SWP_SHOWWINDOW, SetParent, SetWindowLongW,
-        SetWindowPos, WS_CHILD, WS_POPUP, WS_VISIBLE,
+        GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, SWP_NOZORDER, SWP_SHOWWINDOW, SetParent,
+        SetWindowLongW, SetWindowPos, WS_CHILD, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE,
+        WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_VISIBLE,
     };
 
     let hwnd = HWND(window.hwnd() as *mut core::ffi::c_void);
+    // Scale with the current monitor DPI so high-scaling displays don't expose a 1px desktop seam.
+    let overscan = (window.scale_factor().ceil() as i32 + 1).clamp(2, 6);
 
     unsafe {
-        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-        let next_style = (style | WS_CHILD.0 | WS_VISIBLE.0) & !WS_POPUP.0;
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        let next_style = WS_CHILD.0 | WS_VISIBLE.0;
+        let next_ex_style =
+            ex_style & !(WS_EX_APPWINDOW.0 | WS_EX_WINDOWEDGE.0 | WS_EX_CLIENTEDGE.0 | WS_EX_STATICEDGE.0);
         let _ = SetWindowLongW(hwnd, GWL_STYLE, next_style as i32);
+        let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, next_ex_style as i32);
 
         SetParent(hwnd, Some(host.hwnd)).context("SetParent failed for WorkerW host")?;
 
         SetWindowPos(
             hwnd,
             Some(HWND::default()),
-            x,
-            y,
-            width,
-            height,
+            x - overscan,
+            y - overscan,
+            width + overscan * 2,
+            height + overscan * 2,
             SWP_NOZORDER | SWP_SHOWWINDOW,
         )
         .context("SetWindowPos in WorkerW failed")?;

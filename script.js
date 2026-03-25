@@ -1,9 +1,13 @@
-const STORAGE_KEYS = {
+﻿const STORAGE_KEYS = {
   background: "ivory.background",
   customBackground: "ivory.background.custom",
   memo: "ivory.memo",
   todos: "ivory.todos",
   grid: "ivory.grid",
+  snapshot: "ivory.snapshot",
+  dailyRecords: "ivory.dailyRecords",
+  selectedDateKey: "ivory.selectedDateKey",
+  calendarMonthKey: "ivory.calendarMonthKey",
 };
 
 const ASSET_DB = {
@@ -15,16 +19,11 @@ const ASSET_DB = {
 
 const DEFAULT_MEMO = `# 今日备忘
 
-- [ ] 在桌面单元格里自然摆放原生图标
-- [ ] 记录今天的重点任务
-- [x] 背景和信息面板已经就位
+- [ ] 记录今天最重要的事情
+- [ ] 用 Markdown 整理想法、会议纪要或灵感
+- [ ] 打开日历查看不同日期的记录`;
 
-你可以在这里输入 Markdown，然后切换到“预览”。`;
-
-const DEFAULT_TODOS = [
-  { id: makeId(), text: "检查今天的任务优先级", done: false },
-  { id: makeId(), text: "清理桌面临时文件", done: true },
-];
+const DEFAULT_TODO_TEXTS = ["检查今天的优先任务", "整理桌面上的临时文件"];
 
 // Tuned baseline from user: 2560x1600 @ 150% scale -> 77 / 98 / 72 / -7.
 const DEFAULT_GRID = {
@@ -58,15 +57,20 @@ const PRESET_BACKGROUNDS = [
   },
 ];
 
+const savedSnapshot = readStorageMaybe(STORAGE_KEYS.snapshot);
+const initialDailyState = buildInitialDailyState(savedSnapshot);
+
 const state = {
-  backgroundId: readStorage(STORAGE_KEYS.background, PRESET_BACKGROUNDS[0].id),
-  // Legacy inline DataURL value from older versions.
-  backgroundCustom: readStorage(STORAGE_KEYS.customBackground, ""),
-  // Runtime URL used by CSS background-image, usually blob URL.
+  backgroundId: savedSnapshot?.backgroundId ?? readStorage(STORAGE_KEYS.background, PRESET_BACKGROUNDS[0].id),
+  backgroundCustom: savedSnapshot?.backgroundCustom ?? readStorage(STORAGE_KEYS.customBackground, ""),
   backgroundCustomUrl: "",
-  memo: readStorage(STORAGE_KEYS.memo, DEFAULT_MEMO),
-  todos: normalizeTodos(readStorage(STORAGE_KEYS.todos, DEFAULT_TODOS)),
-  grid: normalizeGrid(readStorage(STORAGE_KEYS.grid, DEFAULT_GRID)),
+  memo: "",
+  todos: [],
+  grid: normalizeGrid(savedSnapshot?.grid ?? readStorage(STORAGE_KEYS.grid, DEFAULT_GRID)),
+  dailyRecords: initialDailyState.dailyRecords,
+  selectedDateKey: initialDailyState.selectedDateKey,
+  calendarMonthKey: initialDailyState.calendarMonthKey,
+  todayKeyCache: getTodayKey(),
 };
 
 const el = {
@@ -74,6 +78,9 @@ const el = {
   openBackgroundModal: document.querySelector("#openBackgroundModal"),
   closeBackgroundModal: document.querySelector("#closeBackgroundModal"),
   backgroundModal: document.querySelector("#backgroundModal"),
+  openCalendarModal: document.querySelector("#openCalendarModal"),
+  closeCalendarModal: document.querySelector("#closeCalendarModal"),
+  calendarModal: document.querySelector("#calendarModal"),
   backgroundOptions: document.querySelector("#backgroundOptions"),
   backgroundUpload: document.querySelector("#backgroundUpload"),
   toggleGridPanel: document.querySelector("#toggleGridPanel"),
@@ -92,14 +99,26 @@ const el = {
   resetDataBtn: document.querySelector("#resetDataBtn"),
   timeValue: document.querySelector("#timeValue"),
   dateValue: document.querySelector("#dateValue"),
+  selectedDateTrigger: document.querySelector("#selectedDateTrigger"),
+  selectedDateMeta: document.querySelector("#selectedDateMeta"),
   memoInput: document.querySelector("#memoInput"),
   memoPreview: document.querySelector("#memoPreview"),
   memoEditBtn: document.querySelector("#memoEditBtn"),
   memoPreviewBtn: document.querySelector("#memoPreviewBtn"),
   todoForm: document.querySelector("#todoForm"),
   todoInput: document.querySelector("#todoInput"),
+  todoStatus: document.querySelector("#todoStatus"),
   todoList: document.querySelector("#todoList"),
   todoTemplate: document.querySelector("#todoTemplate"),
+  calendarPrevMonth: document.querySelector("#calendarPrevMonth"),
+  calendarNextMonth: document.querySelector("#calendarNextMonth"),
+  calendarMonthLabel: document.querySelector("#calendarMonthLabel"),
+  calendarGrid: document.querySelector("#calendarGrid"),
+  calendarSelectedLabel: document.querySelector("#calendarSelectedLabel"),
+  calendarSelectedStatus: document.querySelector("#calendarSelectedStatus"),
+  calendarMemoPreview: document.querySelector("#calendarMemoPreview"),
+  calendarTodoPreview: document.querySelector("#calendarTodoPreview"),
+  calendarGoToday: document.querySelector("#calendarGoToday"),
 };
 
 init().catch((error) => {
@@ -108,9 +127,14 @@ init().catch((error) => {
 
 async function init() {
   state.grid = migrateGrid(state.grid);
-  persistGrid();
+  persistGrid({ skipSnapshot: true });
+  hydrateSelectedDayState();
+  mirrorCurrentDayLegacyStorage();
+  persistSelectionState({ skipSnapshot: true });
+  saveStorage(STORAGE_KEYS.dailyRecords, state.dailyRecords, { skipSnapshot: true });
   await migrateLegacyCustomBackgroundIfNeeded();
   await refreshCustomBackgroundUrl();
+  persistSnapshot();
   applyBackground();
   renderBackgroundOptions();
   applyGridAndLayout();
@@ -118,18 +142,32 @@ async function init() {
   initClock();
   initMemo();
   renderTodos();
+  renderSelectedDateUI();
+  renderCalendar();
   bindEvents();
   window.addEventListener("beforeunload", cleanupCustomBackgroundUrl);
   window.addEventListener("storage", handleStorageSync);
 }
 
 function bindEvents() {
-  el.openBackgroundModal.addEventListener("click", () => el.backgroundModal.classList.remove("is-hidden"));
-  el.closeBackgroundModal.addEventListener("click", closeBackgroundModal);
+  el.openBackgroundModal.addEventListener("click", () => openModal(el.backgroundModal));
+  el.closeBackgroundModal.addEventListener("click", () => closeModal(el.backgroundModal));
+  el.openCalendarModal.addEventListener("click", () => openModal(el.calendarModal));
+  el.closeCalendarModal.addEventListener("click", () => closeModal(el.calendarModal));
+  el.selectedDateTrigger.addEventListener("click", () => openModal(el.calendarModal));
 
-  el.backgroundModal.addEventListener("click", (event) => {
-    if (event.target === el.backgroundModal) {
-      closeBackgroundModal();
+  [el.backgroundModal, el.calendarModal].forEach((modal) => {
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeModal(modal);
+      }
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeModal(el.backgroundModal);
+      closeModal(el.calendarModal);
     }
   });
 
@@ -169,6 +207,7 @@ function bindEvents() {
       window.alert("保存配置失败，请重试。");
     });
   });
+
   el.configUpload.addEventListener("change", (event) => {
     importConfigFromFile(event).catch((error) => {
       console.error("Import config failed:", error);
@@ -178,19 +217,29 @@ function bindEvents() {
   });
 
   el.resetDataBtn.addEventListener("click", () => {
-    state.memo = DEFAULT_MEMO;
-    state.todos = cloneValue(DEFAULT_TODOS);
-    saveStorage(STORAGE_KEYS.memo, state.memo);
-    saveStorage(STORAGE_KEYS.todos, state.todos);
-    el.memoInput.value = state.memo;
-    renderMemoPreview();
+    const label = formatDateLabel(state.selectedDateKey, { includeWeekday: true, useShortWeekday: false });
+    const confirmed = window.confirm(`清空 ${label} 的备忘录和 Todo 记录？`);
+    if (!confirmed) {
+      return;
+    }
+    delete state.dailyRecords[state.selectedDateKey];
+    hydrateSelectedDayState();
+    saveStorage(STORAGE_KEYS.dailyRecords, state.dailyRecords, { skipSnapshot: true });
+    mirrorCurrentDayLegacyStorage();
+    persistSelectionState({ skipSnapshot: true });
+    persistSnapshot();
+    initMemo();
     renderTodos();
+    renderSelectedDateUI();
+    renderCalendar();
   });
 
   el.memoInput.addEventListener("input", () => {
     state.memo = el.memoInput.value;
-    saveStorage(STORAGE_KEYS.memo, state.memo);
+    saveCurrentDayRecord();
     renderMemoPreview();
+    renderSelectedDateUI();
+    renderCalendar();
   });
 
   el.memoEditBtn.addEventListener("click", () => switchMemoMode("edit"));
@@ -203,9 +252,28 @@ function bindEvents() {
       return;
     }
     state.todos.unshift({ id: makeId(), text, done: false });
-    saveStorage(STORAGE_KEYS.todos, state.todos);
     el.todoInput.value = "";
+    saveCurrentDayRecord();
     renderTodos();
+    renderSelectedDateUI();
+    renderCalendar();
+  });
+
+  el.calendarPrevMonth.addEventListener("click", () => {
+    state.calendarMonthKey = shiftMonthKey(state.calendarMonthKey, -1);
+    persistSelectionState();
+    renderCalendar();
+  });
+
+  el.calendarNextMonth.addEventListener("click", () => {
+    state.calendarMonthKey = shiftMonthKey(state.calendarMonthKey, 1);
+    persistSelectionState();
+    renderCalendar();
+  });
+
+  el.calendarGoToday.addEventListener("click", () => {
+    const todayKey = getTodayKey();
+    setSelectedDate(todayKey, { syncMonth: true });
   });
 
   window.addEventListener("resize", applyGridAndLayout);
@@ -232,6 +300,13 @@ function updateClock() {
   }).format(now);
   el.timeValue.textContent = time;
   el.dateValue.textContent = date;
+
+  const todayKey = getTodayKey(now);
+  if (todayKey !== state.todayKeyCache) {
+    state.todayKeyCache = todayKey;
+    renderSelectedDateUI();
+    renderCalendar();
+  }
 }
 
 function renderBackgroundOptions() {
@@ -248,7 +323,7 @@ function renderBackgroundOptions() {
       saveStorage(STORAGE_KEYS.background, state.backgroundId);
       applyBackground();
       renderBackgroundOptions();
-      closeBackgroundModal();
+      closeModal(el.backgroundModal);
     });
     el.backgroundOptions.append(button);
   });
@@ -265,7 +340,7 @@ function renderBackgroundOptions() {
       saveStorage(STORAGE_KEYS.background, state.backgroundId);
       applyBackground();
       renderBackgroundOptions();
-      closeBackgroundModal();
+      closeModal(el.backgroundModal);
     });
     el.backgroundOptions.append(customButton);
   }
@@ -291,7 +366,6 @@ async function handleBackgroundUpload(event) {
     await saveCustomBackgroundBlob(file);
     await refreshCustomBackgroundUrl();
   } catch {
-    // Fallback to inline DataURL for environments where IndexedDB is unavailable.
     state.backgroundCustom = await readFileAsDataUrl(file);
     try {
       saveStorage(STORAGE_KEYS.customBackground, state.backgroundCustom);
@@ -305,16 +379,29 @@ async function handleBackgroundUpload(event) {
   saveStorage(STORAGE_KEYS.background, state.backgroundId);
   applyBackground();
   renderBackgroundOptions();
-  closeBackgroundModal();
+  closeModal(el.backgroundModal);
   event.target.value = "";
 }
 
-function closeBackgroundModal() {
-  el.backgroundModal.classList.add("is-hidden");
+function openModal(modal) {
+  modal.classList.remove("is-hidden");
+}
+
+function closeModal(modal) {
+  modal.classList.add("is-hidden");
 }
 
 function handleStorageSync(event) {
   if (!event.key || !Object.values(STORAGE_KEYS).includes(event.key)) {
+    return;
+  }
+
+  if (event.key === STORAGE_KEYS.snapshot) {
+    const snapshot = readStorageMaybe(STORAGE_KEYS.snapshot);
+    if (!snapshot || typeof snapshot !== "object") {
+      return;
+    }
+    applySnapshotState(snapshot);
     return;
   }
 
@@ -345,17 +432,67 @@ function handleStorageSync(event) {
     return;
   }
 
-  if (event.key === STORAGE_KEYS.memo) {
-    state.memo = readStorage(STORAGE_KEYS.memo, DEFAULT_MEMO);
-    el.memoInput.value = state.memo;
-    renderMemoPreview();
+  if (event.key === STORAGE_KEYS.dailyRecords) {
+    state.dailyRecords = normalizeDailyRecords(readStorageMaybe(STORAGE_KEYS.dailyRecords));
+    hydrateSelectedDayState();
+    initMemo();
+    renderTodos();
+    renderSelectedDateUI();
+    renderCalendar();
     return;
   }
 
-  if (event.key === STORAGE_KEYS.todos) {
-    state.todos = normalizeTodos(readStorage(STORAGE_KEYS.todos, DEFAULT_TODOS));
+  if (event.key === STORAGE_KEYS.selectedDateKey) {
+    state.selectedDateKey = sanitizeDateKey(readStorageMaybe(STORAGE_KEYS.selectedDateKey), getTodayKey());
+    hydrateSelectedDayState();
+    initMemo();
     renderTodos();
+    renderSelectedDateUI();
+    renderCalendar();
+    return;
   }
+
+  if (event.key === STORAGE_KEYS.calendarMonthKey) {
+    state.calendarMonthKey = sanitizeMonthKey(
+      readStorageMaybe(STORAGE_KEYS.calendarMonthKey),
+      getMonthKey(state.selectedDateKey)
+    );
+    renderCalendar();
+  }
+}
+
+function applySnapshotState(snapshot) {
+  state.backgroundId = String(snapshot.backgroundId || PRESET_BACKGROUNDS[0].id);
+  state.backgroundCustom = String(snapshot.backgroundCustom || "");
+  state.grid = normalizeGrid(snapshot.grid || DEFAULT_GRID);
+  state.dailyRecords = normalizeDailyRecords(snapshot.dailyRecords);
+  state.selectedDateKey = sanitizeDateKey(snapshot.selectedDateKey, getTodayKey());
+  state.calendarMonthKey = sanitizeMonthKey(snapshot.calendarMonthKey, getMonthKey(state.selectedDateKey));
+
+  if (!Object.keys(state.dailyRecords).length) {
+    const migrated = buildInitialDailyState(snapshot);
+    state.dailyRecords = migrated.dailyRecords;
+    state.selectedDateKey = migrated.selectedDateKey;
+    state.calendarMonthKey = migrated.calendarMonthKey;
+  }
+
+  hydrateSelectedDayState();
+
+  refreshCustomBackgroundUrl()
+    .then(() => {
+      applyBackground();
+      renderBackgroundOptions();
+    })
+    .catch((error) => {
+      console.warn("Snapshot background sync failed:", error);
+    });
+
+  applyGridAndLayout();
+  syncGridInputs();
+  initMemo();
+  renderTodos();
+  renderSelectedDateUI();
+  renderCalendar();
 }
 
 function applyGridAndLayout() {
@@ -392,7 +529,10 @@ function applyGridAndLayout() {
   root.style.setProperty("--panel-width", `${panelWidth}px`);
   root.style.setProperty("--panel-height", `${panelHeight}px`);
 
-  el.gridRuntimeHint.textContent = `当前换算: cell ${effective.cellW.toFixed(1)} x ${effective.cellH.toFixed(1)}, offset ${effective.offsetX.toFixed(1)}, ${effective.offsetY.toFixed(1)} | dpr ${dpr.toFixed(2)} | physical ${physicalWidth.toFixed(0)}x${physicalHeight.toFixed(0)}`;
+  el.gridRuntimeHint.textContent =
+    `当前换算: cell ${effective.cellW.toFixed(1)} x ${effective.cellH.toFixed(1)}, ` +
+    `offset ${effective.offsetX.toFixed(1)}, ${effective.offsetY.toFixed(1)} | ` +
+    `dpr ${dpr.toFixed(2)} | physical ${physicalWidth.toFixed(0)}x${physicalHeight.toFixed(0)}`;
 }
 
 function syncGridInputs() {
@@ -420,44 +560,288 @@ function syncGridFromInputs() {
   syncGridInputs();
 }
 
-function persistGrid() {
-  saveStorage(STORAGE_KEYS.grid, state.grid);
+function persistGrid(options = {}) {
+  saveStorage(STORAGE_KEYS.grid, state.grid, options);
 }
 
-function normalizeGrid(grid) {
-  return {
-    baseWidth: clampInt(grid.baseWidth, 800, 8000),
-    baseHeight: clampInt(grid.baseHeight, 600, 5000),
-    cellW: clampInt(grid.cellW, 40, 220),
-    cellH: clampInt(grid.cellH, 40, 260),
-    offsetX: clampInt(grid.offsetX, -800, 800),
-    offsetY: clampInt(grid.offsetY, -600, 600),
-    opacity: clampFloat(grid.opacity, 0, 1, 2),
-  };
+function persistSnapshot() {
+  saveStorage(
+    STORAGE_KEYS.snapshot,
+    {
+      version: 2,
+      savedAt: new Date().toISOString(),
+      backgroundId: state.backgroundId,
+      backgroundCustom: state.backgroundCustom,
+      grid: state.grid,
+      selectedDateKey: state.selectedDateKey,
+      calendarMonthKey: state.calendarMonthKey,
+      dailyRecords: state.dailyRecords,
+      memo: state.memo,
+      todos: state.todos,
+    },
+    { skipSnapshot: true }
+  );
 }
 
-function migrateGrid(grid) {
-  if (
-    grid.baseWidth === 2500 &&
-    grid.baseHeight === 1600 &&
-    grid.cellW === 77 &&
-    grid.cellH === 98 &&
-    grid.offsetX === 72 &&
-    grid.offsetY === -7
-  ) {
-    return {
-      ...grid,
-      baseWidth: 2560,
-      baseHeight: 1600,
-    };
+function persistSelectionState(options = {}) {
+  saveStorage(STORAGE_KEYS.selectedDateKey, state.selectedDateKey, { skipSnapshot: true, ...options });
+  saveStorage(STORAGE_KEYS.calendarMonthKey, state.calendarMonthKey, { skipSnapshot: true, ...options });
+  if (!options.skipSnapshot) {
+    persistSnapshot();
   }
-  return grid;
+}
+
+function mirrorCurrentDayLegacyStorage() {
+  saveStorage(STORAGE_KEYS.memo, state.memo, { skipSnapshot: true });
+  saveStorage(STORAGE_KEYS.todos, state.todos, { skipSnapshot: true });
+}
+
+function hydrateSelectedDayState() {
+  const record = getDayRecord(state.selectedDateKey);
+  state.memo = record.memo;
+  state.todos = normalizeTodos(record.todos);
+}
+
+function getDayRecord(dateKey) {
+  return normalizeDayRecord(state.dailyRecords[dateKey]);
+}
+
+function saveCurrentDayRecord() {
+  const previous = normalizeDayRecord(state.dailyRecords[state.selectedDateKey]);
+  const nextRecord = normalizeDayRecord({
+    memo: state.memo,
+    todos: state.todos,
+    updatedAt: new Date().toISOString(),
+  });
+
+  state.dailyRecords[state.selectedDateKey] = {
+    memo: nextRecord.memo,
+    todos: nextRecord.todos,
+    updatedAt: nextRecord.updatedAt || previous.updatedAt || new Date().toISOString(),
+  };
+
+  saveStorage(STORAGE_KEYS.dailyRecords, state.dailyRecords, { skipSnapshot: true });
+  mirrorCurrentDayLegacyStorage();
+  persistSelectionState({ skipSnapshot: true });
+  persistSnapshot();
+}
+
+function setSelectedDate(dateKey, options = {}) {
+  state.selectedDateKey = sanitizeDateKey(dateKey, getTodayKey());
+  if (options.syncMonth !== false) {
+    state.calendarMonthKey = getMonthKey(state.selectedDateKey);
+  }
+  hydrateSelectedDayState();
+  mirrorCurrentDayLegacyStorage();
+  persistSelectionState({ skipSnapshot: true });
+  persistSnapshot();
+  initMemo();
+  renderTodos();
+  renderSelectedDateUI();
+  renderCalendar();
+}
+
+function renderSelectedDateUI() {
+  const record = getDayRecord(state.selectedDateKey);
+  const stats = getTodoStats(record.todos);
+  el.selectedDateTrigger.textContent = formatDateLabel(state.selectedDateKey, {
+    includeWeekday: true,
+    useShortWeekday: false,
+  });
+  el.selectedDateMeta.textContent = buildDayStatusText(record, stats, state.selectedDateKey);
+}
+
+function initMemo() {
+  el.memoInput.value = state.memo;
+  renderMemoPreview();
+  switchMemoMode("edit");
+}
+
+function switchMemoMode(mode) {
+  const isEdit = mode === "edit";
+  el.memoInput.classList.toggle("is-hidden", !isEdit);
+  el.memoPreview.classList.toggle("is-hidden", isEdit);
+  el.memoEditBtn.classList.toggle("is-active", isEdit);
+  el.memoPreviewBtn.classList.toggle("is-active", !isEdit);
+}
+
+function renderMemoPreview() {
+  el.memoPreview.innerHTML = markdownToHtml(state.memo);
+}
+
+function renderTodos() {
+  el.todoList.innerHTML = "";
+  const stats = getTodoStats(state.todos);
+  el.todoStatus.textContent = `${stats.total} 项待办，已完成 ${stats.done} 项`;
+
+  state.todos.forEach((todo) => {
+    const item = el.todoTemplate.content.firstElementChild.cloneNode(true);
+    const checkbox = item.querySelector(".todo-checkbox");
+    const text = item.querySelector(".todo-text");
+    const remove = item.querySelector(".todo-remove");
+
+    checkbox.checked = todo.done;
+    text.textContent = todo.text;
+
+    checkbox.addEventListener("change", () => {
+      todo.done = checkbox.checked;
+      saveCurrentDayRecord();
+      renderTodos();
+      renderSelectedDateUI();
+      renderCalendar();
+    });
+
+    remove.addEventListener("click", () => {
+      state.todos = state.todos.filter((row) => row.id !== todo.id);
+      saveCurrentDayRecord();
+      renderTodos();
+      renderSelectedDateUI();
+      renderCalendar();
+    });
+
+    el.todoList.append(item);
+  });
+}
+
+function renderCalendar() {
+  const monthKey = sanitizeMonthKey(state.calendarMonthKey, getMonthKey(state.selectedDateKey));
+  state.calendarMonthKey = monthKey;
+  el.calendarMonthLabel.textContent = formatMonthLabel(monthKey);
+  el.calendarGrid.innerHTML = "";
+
+  const monthDate = parseDateKey(monthKey);
+  const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 12);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(firstDay.getDate() - startOffset);
+
+  for (let index = 0; index < 42; index += 1) {
+    const current = new Date(gridStart);
+    current.setDate(gridStart.getDate() + index);
+    const dateKey = formatDateKey(current);
+    const record = getDayRecord(dateKey);
+    const isOutside = getMonthKey(dateKey) !== monthKey;
+    const isToday = dateKey === state.todayKeyCache;
+    const isSelected = dateKey === state.selectedDateKey;
+    const isRecorded = hasRecordedDay(record);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = [
+      "calendar-day",
+      isOutside ? "is-outside" : "",
+      isToday ? "is-today" : "",
+      isSelected ? "is-selected" : "",
+      isRecorded ? "is-recorded" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const note = getCalendarDayPreviewText(record);
+    const tag = isToday ? "今天" : isRecorded ? "已记" : "空白";
+
+    button.innerHTML = `
+      <div class="calendar-day-head">
+        <span class="calendar-day-number">${current.getDate()}</span>
+        <span class="calendar-day-tag">${tag}</span>
+      </div>
+      <p class="calendar-day-note">${escapeHtml(note)}</p>
+      <span class="calendar-day-dot" aria-hidden="true"></span>
+    `;
+
+    button.addEventListener("click", () => {
+      setSelectedDate(dateKey, { syncMonth: false });
+      renderCalendarSidebar();
+    });
+
+    el.calendarGrid.append(button);
+  }
+
+  renderCalendarSidebar();
+}
+
+function renderCalendarSidebar() {
+  const record = getDayRecord(state.selectedDateKey);
+  const stats = getTodoStats(record.todos);
+  el.calendarSelectedLabel.textContent = formatDateLabel(state.selectedDateKey, {
+    includeWeekday: true,
+    useShortWeekday: false,
+  });
+  el.calendarSelectedStatus.textContent = buildDayStatusText(record, stats, state.selectedDateKey, {
+    includeTime: true,
+  });
+
+  const memoPreview = getMemoPreviewText(record.memo);
+  el.calendarMemoPreview.textContent = memoPreview || "当天还没有备忘录内容。";
+
+  el.calendarTodoPreview.innerHTML = "";
+  if (!record.todos.length) {
+    const empty = document.createElement("li");
+    empty.className = "calendar-empty-todos";
+    empty.textContent = "当天还没有 Todo 项目。";
+    el.calendarTodoPreview.append(empty);
+    return;
+  }
+
+  record.todos.slice(0, 6).forEach((todo) => {
+    const item = document.createElement("li");
+    item.className = `calendar-todo-item${todo.done ? " is-done" : ""}`;
+    item.textContent = todo.text;
+    el.calendarTodoPreview.append(item);
+  });
+}
+
+function getRenderableCustomBackground() {
+  return state.backgroundCustomUrl || state.backgroundCustom || "";
+}
+
+async function migrateLegacyCustomBackgroundIfNeeded() {
+  const legacy = state.backgroundCustom;
+  if (!legacy || !legacy.startsWith("data:")) {
+    return;
+  }
+
+  try {
+    const blob = dataUrlToBlob(legacy);
+    await saveCustomBackgroundBlob(blob);
+    state.backgroundCustom = "";
+    saveStorage(STORAGE_KEYS.customBackground, "", { skipSnapshot: true });
+  } catch (error) {
+    console.warn("Legacy background migration skipped:", error);
+  }
+}
+
+async function refreshCustomBackgroundUrl() {
+  try {
+    const blob = await loadCustomBackgroundBlob();
+    if (!blob) {
+      cleanupCustomBackgroundUrl();
+      return;
+    }
+    const nextUrl = URL.createObjectURL(blob);
+    setCustomBackgroundUrl(nextUrl);
+  } catch (error) {
+    console.warn("Load custom background from IndexedDB failed:", error);
+    cleanupCustomBackgroundUrl();
+  }
+}
+
+function setCustomBackgroundUrl(url) {
+  cleanupCustomBackgroundUrl();
+  state.backgroundCustomUrl = url;
+}
+
+function cleanupCustomBackgroundUrl() {
+  if (state.backgroundCustomUrl && state.backgroundCustomUrl.startsWith("blob:")) {
+    URL.revokeObjectURL(state.backgroundCustomUrl);
+  }
+  state.backgroundCustomUrl = "";
 }
 
 async function exportConfig() {
   const serializedBackground = await serializeCustomBackgroundForExport();
   const payload = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     viewport: {
       width: window.innerWidth,
@@ -468,6 +852,9 @@ async function exportConfig() {
       id: state.backgroundId,
       custom: serializedBackground,
     },
+    selectedDateKey: state.selectedDateKey,
+    calendarMonthKey: state.calendarMonthKey,
+    dailyRecords: state.dailyRecords,
     memo: state.memo,
     todos: state.todos,
   };
@@ -504,67 +891,68 @@ async function importConfigFromFile(event) {
 async function applyImportedConfig(config) {
   if (config.grid) {
     state.grid = normalizeGrid(config.grid);
-    persistGrid();
+    persistGrid({ skipSnapshot: true });
   }
 
   if (config.background && typeof config.background === "object") {
     const nextId = String(config.background.id || PRESET_BACKGROUNDS[0].id);
     const nextCustom = String(config.background.custom || "");
     state.backgroundId = nextId;
+
     if (nextCustom.startsWith("data:")) {
       const blob = dataUrlToBlob(nextCustom);
       await saveCustomBackgroundBlob(blob);
       await refreshCustomBackgroundUrl();
     } else if (nextCustom) {
-      // Backward compatibility: treat any non-empty string as inline URL.
       state.backgroundCustom = nextCustom;
-      saveStorage(STORAGE_KEYS.customBackground, state.backgroundCustom);
+      saveStorage(STORAGE_KEYS.customBackground, state.backgroundCustom, { skipSnapshot: true });
       await deleteCustomBackgroundBlob();
       cleanupCustomBackgroundUrl();
     } else {
       state.backgroundCustom = "";
-      saveStorage(STORAGE_KEYS.customBackground, "");
+      saveStorage(STORAGE_KEYS.customBackground, "", { skipSnapshot: true });
       await deleteCustomBackgroundBlob();
       cleanupCustomBackgroundUrl();
     }
-    saveStorage(STORAGE_KEYS.background, state.backgroundId);
+
+    saveStorage(STORAGE_KEYS.background, state.backgroundId, { skipSnapshot: true });
   }
 
-  if (typeof config.memo === "string") {
-    state.memo = config.memo;
-    saveStorage(STORAGE_KEYS.memo, state.memo);
+  if (config.dailyRecords && typeof config.dailyRecords === "object") {
+    state.dailyRecords = normalizeDailyRecords(config.dailyRecords);
+  } else {
+    const importedDateKey = sanitizeDateKey(config.selectedDateKey, getTodayKey());
+    const importedRecord = normalizeDayRecord({
+      memo: typeof config.memo === "string" ? config.memo : "",
+      todos: Array.isArray(config.todos) ? config.todos : [],
+      updatedAt: typeof config.exportedAt === "string" ? config.exportedAt : new Date().toISOString(),
+    });
+    state.dailyRecords = {};
+    if (hasRecordedDay(importedRecord)) {
+      state.dailyRecords[importedDateKey] = importedRecord;
+    }
   }
 
-  if (Array.isArray(config.todos)) {
-    state.todos = normalizeTodos(config.todos);
-    saveStorage(STORAGE_KEYS.todos, state.todos);
-  }
+  state.selectedDateKey = sanitizeDateKey(
+    config.selectedDateKey,
+    Object.keys(state.dailyRecords)[0] || getTodayKey()
+  );
+  state.calendarMonthKey = sanitizeMonthKey(config.calendarMonthKey, getMonthKey(state.selectedDateKey));
+
+  hydrateSelectedDayState();
+  saveStorage(STORAGE_KEYS.dailyRecords, state.dailyRecords, { skipSnapshot: true });
+  persistSelectionState({ skipSnapshot: true });
+  mirrorCurrentDayLegacyStorage();
+  persistSnapshot();
 
   applyBackground();
   renderBackgroundOptions();
   applyGridAndLayout();
   syncGridInputs();
-  el.memoInput.value = state.memo;
-  renderMemoPreview();
+  initMemo();
   renderTodos();
-}
-
-function initMemo() {
-  el.memoInput.value = state.memo;
-  renderMemoPreview();
-  switchMemoMode("edit");
-}
-
-function switchMemoMode(mode) {
-  const isEdit = mode === "edit";
-  el.memoInput.classList.toggle("is-hidden", !isEdit);
-  el.memoPreview.classList.toggle("is-hidden", isEdit);
-  el.memoEditBtn.classList.toggle("is-active", isEdit);
-  el.memoPreviewBtn.classList.toggle("is-active", !isEdit);
-}
-
-function renderMemoPreview() {
-  el.memoPreview.innerHTML = markdownToHtml(state.memo);
+  renderSelectedDateUI();
+  renderCalendar();
 }
 
 function markdownToHtml(markdown) {
@@ -648,80 +1036,302 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   };
-  return value.replace(/[&<>"']/g, (char) => map[char]);
+  return String(value).replace(/[&<>"']/g, (char) => map[char]);
 }
 
-function renderTodos() {
-  el.todoList.innerHTML = "";
-  state.todos.forEach((todo) => {
-    const item = el.todoTemplate.content.firstElementChild.cloneNode(true);
-    const checkbox = item.querySelector(".todo-checkbox");
-    const text = item.querySelector(".todo-text");
-    const remove = item.querySelector(".todo-remove");
-
-    checkbox.checked = todo.done;
-    text.textContent = todo.text;
-
-    checkbox.addEventListener("change", () => {
-      todo.done = checkbox.checked;
-      saveStorage(STORAGE_KEYS.todos, state.todos);
-    });
-
-    remove.addEventListener("click", () => {
-      state.todos = state.todos.filter((row) => row.id !== todo.id);
-      saveStorage(STORAGE_KEYS.todos, state.todos);
-      renderTodos();
-    });
-
-    el.todoList.append(item);
-  });
+function stripMarkdown(value) {
+  return String(value)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1")
+    .replace(/[*_>#-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function getRenderableCustomBackground() {
-  return state.backgroundCustomUrl || state.backgroundCustom || "";
+function getCalendarDayPreviewText(record) {
+  if (!hasRecordedDay(record)) {
+    return "当天还没有记录";
+  }
+  const memoPreview = getMemoPreviewText(record.memo, 26);
+  if (memoPreview) {
+    return memoPreview;
+  }
+  if (record.todos.length) {
+    return `${record.todos.length} 项 Todo`;
+  }
+  return "已修改，当前内容为空";
 }
 
-async function migrateLegacyCustomBackgroundIfNeeded() {
-  const legacy = state.backgroundCustom;
-  if (!legacy || !legacy.startsWith("data:")) {
-    return;
+function getMemoPreviewText(memo, maxLength = 180) {
+  const clean = stripMarkdown(memo);
+  if (!clean) {
+    return "";
+  }
+  if (clean.length <= maxLength) {
+    return clean;
+  }
+  return `${clean.slice(0, maxLength).trim()}…`;
+}
+
+function buildDayStatusText(record, stats, dateKey, options = {}) {
+  const parts = [];
+  if (dateKey === state.todayKeyCache) {
+    parts.push("今天");
   }
 
+  if (!hasRecordedDay(record)) {
+    parts.push("尚未记录");
+    return parts.join(" · ");
+  }
+
+  parts.push("已修改");
+
+  if (stats.total > 0) {
+    parts.push(`${stats.total} 项待办`);
+    if (stats.done > 0) {
+      parts.push(`已完成 ${stats.done} 项`);
+    }
+  } else {
+    parts.push("无待办");
+  }
+
+  if (options.includeTime && record.updatedAt) {
+    parts.push(`更新于 ${formatTime(record.updatedAt)}`);
+  }
+
+  return parts.join(" · ");
+}
+
+function formatTime(value) {
   try {
-    const blob = dataUrlToBlob(legacy);
-    await saveCustomBackgroundBlob(blob);
-    state.backgroundCustom = "";
-    saveStorage(STORAGE_KEYS.customBackground, "");
-  } catch (error) {
-    console.warn("Legacy background migration skipped:", error);
+    return new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return "--:--";
   }
 }
 
-async function refreshCustomBackgroundUrl() {
-  try {
-    const blob = await loadCustomBackgroundBlob();
-    if (!blob) {
-      cleanupCustomBackgroundUrl();
+function getTodoStats(todos) {
+  const total = Array.isArray(todos) ? todos.length : 0;
+  const done = Array.isArray(todos) ? todos.filter((item) => item.done).length : 0;
+  return { total, done };
+}
+
+function buildInitialDailyState(snapshot) {
+  const snapshotRecords = normalizeDailyRecords(snapshot?.dailyRecords);
+  const storedRecords = normalizeDailyRecords(readStorageMaybe(STORAGE_KEYS.dailyRecords));
+
+  let dailyRecords =
+    Object.keys(snapshotRecords).length > 0 ? snapshotRecords : Object.keys(storedRecords).length > 0 ? storedRecords : {};
+
+  let selectedDateKey = sanitizeDateKey(
+    snapshot?.selectedDateKey ?? readStorageMaybe(STORAGE_KEYS.selectedDateKey),
+    getTodayKey()
+  );
+
+  if (!Object.keys(dailyRecords).length) {
+    const legacyMemo = typeof snapshot?.memo === "string" ? snapshot.memo : readStorageMaybe(STORAGE_KEYS.memo);
+    const legacyTodos = Array.isArray(snapshot?.todos) ? snapshot.todos : readStorageMaybe(STORAGE_KEYS.todos);
+    const legacyRecord = normalizeDayRecord({
+      memo: typeof legacyMemo === "string" ? legacyMemo : "",
+      todos: Array.isArray(legacyTodos) ? legacyTodos : [],
+      updatedAt: typeof snapshot?.savedAt === "string" ? snapshot.savedAt : new Date().toISOString(),
+    });
+
+    if (hasRecordedDay(legacyRecord)) {
+      dailyRecords[selectedDateKey] = legacyRecord;
+    }
+  }
+
+  if (!Object.keys(dailyRecords).length && !hasAnyStoredState()) {
+    selectedDateKey = getTodayKey();
+    dailyRecords[selectedDateKey] = normalizeDayRecord({
+      memo: DEFAULT_MEMO,
+      todos: getDefaultTodos(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  const calendarMonthKey = sanitizeMonthKey(
+    snapshot?.calendarMonthKey ?? readStorageMaybe(STORAGE_KEYS.calendarMonthKey),
+    getMonthKey(selectedDateKey)
+  );
+
+  return {
+    dailyRecords,
+    selectedDateKey,
+    calendarMonthKey,
+  };
+}
+
+function hasAnyStoredState() {
+  return [
+    STORAGE_KEYS.snapshot,
+    STORAGE_KEYS.dailyRecords,
+    STORAGE_KEYS.memo,
+    STORAGE_KEYS.todos,
+    STORAGE_KEYS.background,
+    STORAGE_KEYS.grid,
+  ].some((key) => localStorage.getItem(key) !== null);
+}
+
+function getDefaultTodos() {
+  return DEFAULT_TODO_TEXTS.map((text, index) => ({
+    id: makeId(),
+    text,
+    done: index === 1,
+  }));
+}
+
+function normalizeDailyRecords(records) {
+  if (!records || typeof records !== "object" || Array.isArray(records)) {
+    return {};
+  }
+
+  const normalized = {};
+  Object.entries(records).forEach(([dateKey, record]) => {
+    if (!isValidDateKey(dateKey)) {
       return;
     }
-    const nextUrl = URL.createObjectURL(blob);
-    setCustomBackgroundUrl(nextUrl);
-  } catch (error) {
-    console.warn("Load custom background from IndexedDB failed:", error);
-    cleanupCustomBackgroundUrl();
-  }
+    const nextRecord = normalizeDayRecord(record);
+    if (hasRecordedDay(nextRecord)) {
+      normalized[dateKey] = nextRecord;
+    }
+  });
+  return normalized;
 }
 
-function setCustomBackgroundUrl(url) {
-  cleanupCustomBackgroundUrl();
-  state.backgroundCustomUrl = url;
+function normalizeDayRecord(record) {
+  if (!record || typeof record !== "object") {
+    return {
+      memo: "",
+      todos: [],
+      updatedAt: "",
+    };
+  }
+
+  const updatedAt =
+    typeof record.updatedAt === "string" && !Number.isNaN(Date.parse(record.updatedAt)) ? record.updatedAt : "";
+
+  return {
+    memo: typeof record.memo === "string" ? record.memo : "",
+    todos: normalizeTodos(record.todos),
+    updatedAt,
+  };
 }
 
-function cleanupCustomBackgroundUrl() {
-  if (state.backgroundCustomUrl && state.backgroundCustomUrl.startsWith("blob:")) {
-    URL.revokeObjectURL(state.backgroundCustomUrl);
+function hasRecordedDay(record) {
+  if (!record) {
+    return false;
   }
-  state.backgroundCustomUrl = "";
+  return Boolean(record.updatedAt || String(record.memo || "").trim() || normalizeTodos(record.todos).length);
+}
+
+function normalizeGrid(grid) {
+  return {
+    baseWidth: clampInt(grid.baseWidth, 800, 8000),
+    baseHeight: clampInt(grid.baseHeight, 600, 5000),
+    cellW: clampInt(grid.cellW, 40, 220),
+    cellH: clampInt(grid.cellH, 40, 260),
+    offsetX: clampInt(grid.offsetX, -800, 800),
+    offsetY: clampInt(grid.offsetY, -600, 600),
+    opacity: clampFloat(grid.opacity, 0, 1, 2),
+  };
+}
+
+function migrateGrid(grid) {
+  if (
+    grid.baseWidth === 2500 &&
+    grid.baseHeight === 1600 &&
+    grid.cellW === 77 &&
+    grid.cellH === 98 &&
+    grid.offsetX === 72 &&
+    grid.offsetY === -7
+  ) {
+    return {
+      ...grid,
+      baseWidth: 2560,
+      baseHeight: 1600,
+    };
+  }
+  return grid;
+}
+
+function normalizeTodos(rows) {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+  return rows
+    .map((row) => ({
+      id: String(row?.id || makeId()),
+      text: String(row?.text || "").trim().slice(0, 120),
+      done: Boolean(row?.done),
+    }))
+    .filter((row) => row.text);
+}
+
+function formatDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getTodayKey(date = new Date()) {
+  return formatDateKey(date);
+}
+
+function parseDateKey(dateKey) {
+  const [year, month, day] = String(dateKey).split("-").map((part) => Number.parseInt(part, 10));
+  return new Date(year, (month || 1) - 1, day || 1, 12);
+}
+
+function isValidDateKey(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value));
+}
+
+function sanitizeDateKey(value, fallback) {
+  return isValidDateKey(value) ? String(value) : fallback;
+}
+
+function getMonthKey(dateKey) {
+  const safeDateKey = sanitizeDateKey(dateKey, getTodayKey());
+  return `${safeDateKey.slice(0, 7)}-01`;
+}
+
+function sanitizeMonthKey(value, fallback) {
+  return isValidDateKey(value) ? getMonthKey(value) : getMonthKey(fallback);
+}
+
+function shiftMonthKey(monthKey, delta) {
+  const base = parseDateKey(sanitizeMonthKey(monthKey, getMonthKey(getTodayKey())));
+  return formatDateKey(new Date(base.getFullYear(), base.getMonth() + delta, 1, 12));
+}
+
+function formatDateLabel(dateKey, options = {}) {
+  const date = parseDateKey(dateKey);
+  const parts = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  };
+
+  if (options.includeWeekday) {
+    parts.weekday = options.useShortWeekday ? "short" : "long";
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", parts).format(date).replace(/\//g, "-");
+}
+
+function formatMonthLabel(monthKey) {
+  const date = parseDateKey(monthKey);
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "long",
+  }).format(date);
 }
 
 async function serializeCustomBackgroundForExport() {
@@ -744,7 +1354,7 @@ async function serializeCustomBackgroundForExport() {
 async function saveCustomBackgroundBlob(blob) {
   await idbSet(ASSET_DB.customBackgroundKey, blob);
   state.backgroundCustom = "";
-  saveStorage(STORAGE_KEYS.customBackground, "");
+  saveStorage(STORAGE_KEYS.customBackground, "", { skipSnapshot: true });
 }
 
 async function loadCustomBackgroundBlob() {
@@ -837,17 +1447,6 @@ async function idbDelete(key) {
   });
 }
 
-function normalizeTodos(rows) {
-  if (!Array.isArray(rows)) {
-    return cloneValue(DEFAULT_TODOS);
-  }
-  return rows.map((row) => ({
-    id: String(row.id || makeId()),
-    text: String(row.text || "").slice(0, 120),
-    done: Boolean(row.done),
-  }));
-}
-
 function clampInt(value, min, max) {
   const upper = Math.max(min, max);
   const number = Number.parseInt(value, 10);
@@ -870,7 +1469,7 @@ function clampFloat(value, min, max, fixed = 2) {
 function readStorage(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) {
+    if (raw === null) {
       return cloneValue(fallback);
     }
     return JSON.parse(raw);
@@ -879,8 +1478,23 @@ function readStorage(key, fallback) {
   }
 }
 
-function saveStorage(key, value) {
+function readStorageMaybe(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) {
+      return undefined;
+    }
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function saveStorage(key, value, options = {}) {
   localStorage.setItem(key, JSON.stringify(value));
+  if (!options.skipSnapshot && key !== STORAGE_KEYS.snapshot) {
+    persistSnapshot();
+  }
 }
 
 function cloneValue(value) {

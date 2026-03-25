@@ -13,57 +13,64 @@
 
     <header class="hud-controls">
       <button id="openBackgroundModal" class="btn btn-primary" type="button">更换背景</button>
+      <button id="openCalendarModal" class="btn btn-ghost" type="button">日历记录</button>
       <button id="toggleGridPanel" class="btn btn-ghost" type="button">网格微调</button>
       <button id="exportConfigBtn" class="btn btn-ghost" type="button">保存配置</button>
       <label for="configUpload" class="btn btn-ghost">加载配置</label>
       <input id="configUpload" type="file" accept="application/json" />
-      <button id="resetDataBtn" class="btn btn-ghost" type="button">重置备忘录/Todo</button>
+      <button id="resetDataBtn" class="btn btn-ghost" type="button">清空当前日期记录</button>
     </header>
 
     <aside class="grid-panel is-hidden" id="gridPanel" aria-label="网格微调面板">
       <p class="panel-title">桌面单元格</p>
-      <p class="panel-tip">参数以基准分辨率保存，切换分辨率会同比换算，并自动考虑系统缩放。</p>
+      <p class="panel-tip">参数会按基准分辨率保存，切换分辨率时自动等比换算，同时会考虑系统缩放。</p>
       <label class="field">
-        <span>单元格宽度(px)</span>
+        <span>单元格宽度 (px)</span>
         <input id="gridCellWidth" type="number" min="40" max="180" />
       </label>
       <label class="field">
-        <span>单元格高度(px)</span>
+        <span>单元格高度 (px)</span>
         <input id="gridCellHeight" type="number" min="40" max="220" />
       </label>
       <label class="field">
-        <span>水平偏移(px)</span>
+        <span>水平偏移 (px)</span>
         <input id="gridOffsetX" type="number" min="-400" max="400" />
       </label>
       <label class="field">
-        <span>垂直偏移(px)</span>
+        <span>垂直偏移 (px)</span>
         <input id="gridOffsetY" type="number" min="-400" max="400" />
       </label>
       <label class="field">
-        <span>网格透明度(0-1)</span>
+        <span>网格透明度 (0-1)</span>
         <input id="gridOpacity" type="number" min="0" max="1" step="0.05" />
       </label>
       <label class="field">
-        <span>基准宽度(px)</span>
+        <span>基准宽度 (px)</span>
         <input id="gridBaseWidth" type="number" min="800" max="8000" />
       </label>
       <label class="field">
-        <span>基准高度(px)</span>
+        <span>基准高度 (px)</span>
         <input id="gridBaseHeight" type="number" min="600" max="5000" />
       </label>
-      <p class="panel-tip" id="gridRuntimeHint">当前分辨率换算值: --</p>
+      <p class="panel-tip" id="gridRuntimeHint">当前换算值: --</p>
       <button id="resetGridBtn" class="btn btn-mini" type="button">恢复默认网格</button>
     </aside>
 
-    <section class="widget clock-widget" aria-label="时间区块">
+    <section class="widget clock-widget" aria-label="时间区域">
       <p class="widget-title">TIME</p>
       <p class="time-value" id="timeValue">00:00:00</p>
       <p class="date-value" id="dateValue">2026/01/01 星期四</p>
     </section>
 
-    <section class="widget productivity-widget" aria-label="备忘录与待办区块">
+    <section class="widget productivity-widget" aria-label="备忘录与待办区域">
       <div class="widget-header">
-        <p class="widget-title">MARKDOWN MEMO + TODO</p>
+        <div class="productivity-title-group">
+          <p class="widget-title">MARKDOWN MEMO + TODO</p>
+          <div class="date-chip-row">
+            <button id="selectedDateTrigger" class="date-chip" type="button">2026-01-01 星期四</button>
+            <p id="selectedDateMeta" class="date-chip-meta">当天记录</p>
+          </div>
+        </div>
         <div class="switch-group">
           <button id="memoEditBtn" class="btn btn-mini is-active" type="button">编辑</button>
           <button id="memoPreviewBtn" class="btn btn-mini" type="button">预览</button>
@@ -72,14 +79,22 @@
 
       <div class="productivity-body">
         <section class="memo-panel">
-          <textarea id="memoInput" class="memo-input" spellcheck="false"></textarea>
+          <textarea
+            id="memoInput"
+            class="memo-input"
+            spellcheck="false"
+            placeholder="记录当天的想法、计划或临时信息"
+          ></textarea>
           <article id="memoPreview" class="memo-preview is-hidden"></article>
         </section>
 
         <section class="todo-panel">
-          <p class="todo-title">TODO LIST</p>
+          <div class="todo-header">
+            <p class="todo-title">TODO LIST</p>
+            <p id="todoStatus" class="todo-status">0 项待办</p>
+          </div>
           <form id="todoForm" class="todo-form">
-            <input id="todoInput" type="text" maxlength="120" placeholder="输入待办事项后按 Enter" />
+            <input id="todoInput" type="text" maxlength="120" placeholder="输入待办后按 Enter" />
             <button class="btn btn-mini" type="submit">添加</button>
           </form>
           <ul id="todoList" class="todo-list"></ul>
@@ -87,7 +102,13 @@
       </div>
     </section>
 
-    <div class="modal is-hidden" id="backgroundModal" role="dialog" aria-modal="true" aria-labelledby="backgroundModalTitle">
+    <div
+      class="modal is-hidden"
+      id="backgroundModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="backgroundModalTitle"
+    >
       <div class="modal-panel">
         <div class="modal-header">
           <h2 id="backgroundModalTitle">选择背景</h2>
@@ -97,6 +118,64 @@
         <div class="upload-row">
           <label for="backgroundUpload" class="btn btn-primary">上传本地图片</label>
           <input id="backgroundUpload" type="file" accept="image/*" />
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="modal is-hidden"
+      id="calendarModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="calendarModalTitle"
+    >
+      <div class="modal-panel calendar-modal-panel">
+        <div class="modal-header">
+          <div>
+            <h2 id="calendarModalTitle">按日期查看记录</h2>
+            <p class="modal-subtitle">可以切换到任意日期，查看或编辑当天的备忘录与 Todo。</p>
+          </div>
+          <button id="closeCalendarModal" class="btn btn-mini" type="button">关闭</button>
+        </div>
+
+        <div class="calendar-layout">
+          <section class="calendar-board">
+            <div class="calendar-toolbar">
+              <button id="calendarPrevMonth" class="btn btn-mini" type="button">上个月</button>
+              <p id="calendarMonthLabel" class="calendar-month-label">2026 年 1 月</p>
+              <button id="calendarNextMonth" class="btn btn-mini" type="button">下个月</button>
+            </div>
+
+            <div class="calendar-weekdays" aria-hidden="true">
+              <span>一</span>
+              <span>二</span>
+              <span>三</span>
+              <span>四</span>
+              <span>五</span>
+              <span>六</span>
+              <span>日</span>
+            </div>
+
+            <div id="calendarGrid" class="calendar-grid"></div>
+          </section>
+
+          <aside class="calendar-sidebar">
+            <p class="calendar-sidebar-title">日期概览</p>
+            <p id="calendarSelectedLabel" class="calendar-selected-label">2026-01-01 星期四</p>
+            <p id="calendarSelectedStatus" class="calendar-selected-status">尚未记录</p>
+
+            <section class="calendar-preview-section">
+              <p class="calendar-preview-title">备忘录摘要</p>
+              <div id="calendarMemoPreview" class="calendar-memo-preview">当天还没有备忘录内容。</div>
+            </section>
+
+            <section class="calendar-preview-section">
+              <p class="calendar-preview-title">Todo 摘要</p>
+              <ul id="calendarTodoPreview" class="calendar-todo-preview"></ul>
+            </section>
+
+            <button id="calendarGoToday" class="btn btn-primary btn-mini" type="button">回到今天</button>
+          </aside>
         </div>
       </div>
     </div>
