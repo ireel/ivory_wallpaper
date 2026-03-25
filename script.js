@@ -59,6 +59,7 @@ const PRESET_BACKGROUNDS = [
 
 const savedSnapshot = readStorageMaybe(STORAGE_KEYS.snapshot);
 const initialDailyState = buildInitialDailyState(savedSnapshot);
+const VIEW_CONTEXT = readViewContext();
 
 const state = {
   backgroundId: savedSnapshot?.backgroundId ?? readStorage(STORAGE_KEYS.background, PRESET_BACKGROUNDS[0].id),
@@ -100,6 +101,7 @@ const el = {
   timeValue: document.querySelector("#timeValue"),
   dateValue: document.querySelector("#dateValue"),
   selectedDateTrigger: document.querySelector("#selectedDateTrigger"),
+  selectedDatePassiveLabel: document.querySelector("#selectedDatePassiveLabel"),
   selectedDateMeta: document.querySelector("#selectedDateMeta"),
   memoInput: document.querySelector("#memoInput"),
   memoPreview: document.querySelector("#memoPreview"),
@@ -137,6 +139,7 @@ async function init() {
   persistSnapshot();
   applyBackground();
   renderBackgroundOptions();
+  applyWindowRoleUI();
   applyGridAndLayout();
   syncGridInputs();
   initClock();
@@ -389,6 +392,18 @@ function openModal(modal) {
 
 function closeModal(modal) {
   modal.classList.add("is-hidden");
+}
+
+function applyWindowRoleUI() {
+  document.body.dataset.ivoryRole = VIEW_CONTEXT.role;
+  document.body.classList.toggle("is-editor-role", VIEW_CONTEXT.isEditor);
+  document.body.classList.toggle("is-wallpaper-role", !VIEW_CONTEXT.isEditor);
+
+  if (!VIEW_CONTEXT.isEditor) {
+    closeModal(el.backgroundModal);
+    closeModal(el.calendarModal);
+    el.gridPanel.classList.add("is-hidden");
+  }
 }
 
 function handleStorageSync(event) {
@@ -644,17 +659,21 @@ function setSelectedDate(dateKey, options = {}) {
 function renderSelectedDateUI() {
   const record = getDayRecord(state.selectedDateKey);
   const stats = getTodoStats(record.todos);
-  el.selectedDateTrigger.textContent = formatDateLabel(state.selectedDateKey, {
+  const dateLabel = formatDateLabel(state.selectedDateKey, {
     includeWeekday: true,
     useShortWeekday: false,
   });
+  el.selectedDateTrigger.textContent = dateLabel;
+  if (el.selectedDatePassiveLabel) {
+    el.selectedDatePassiveLabel.textContent = dateLabel;
+  }
   el.selectedDateMeta.textContent = buildDayStatusText(record, stats, state.selectedDateKey);
 }
 
 function initMemo() {
   el.memoInput.value = state.memo;
   renderMemoPreview();
-  switchMemoMode("edit");
+  switchMemoMode("preview");
 }
 
 function switchMemoMode(mode) {
@@ -681,6 +700,7 @@ function renderTodos() {
     const remove = item.querySelector(".todo-remove");
 
     checkbox.checked = todo.done;
+    checkbox.disabled = !VIEW_CONTEXT.isEditor;
     text.textContent = todo.text;
 
     checkbox.addEventListener("change", () => {
@@ -1118,6 +1138,18 @@ function getTodoStats(todos) {
   const total = Array.isArray(todos) ? todos.length : 0;
   const done = Array.isArray(todos) ? todos.filter((item) => item.done).length : 0;
   return { total, done };
+}
+
+function readViewContext() {
+  const params = new URLSearchParams(window.location.search);
+  const rawRole = params.get("ivoryWindowRole");
+  const role = rawRole === "wallpaper" ? "wallpaper" : "editor";
+  return {
+    role,
+    isEditor: role === "editor",
+    monitorIndex: Number.parseInt(params.get("ivoryMonitorIndex") || "0", 10) || 0,
+    isPrimary: params.get("ivoryMonitorPrimary") === "1",
+  };
 }
 
 function buildInitialDailyState(snapshot) {

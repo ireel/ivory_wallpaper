@@ -282,6 +282,14 @@ textarea {
   color: var(--text-subtle);
 }
 
+.date-passive-label {
+  display: none;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(236, 244, 255, 0.96);
+}
+
 .switch-group {
   display: inline-flex;
   gap: 6px;
@@ -809,6 +817,45 @@ textarea {
 
 .calendar-empty-todos {
   color: var(--text-subtle);
+}
+
+body[data-ivory-role="wallpaper"] .hud-controls,
+body[data-ivory-role="wallpaper"] .switch-group,
+body[data-ivory-role="wallpaper"] .todo-form,
+body[data-ivory-role="wallpaper"] .todo-remove,
+body[data-ivory-role="wallpaper"] .modal,
+body[data-ivory-role="wallpaper"] .grid-panel,
+body[data-ivory-role="wallpaper"] #selectedDateTrigger {
+  display: none !important;
+}
+
+body[data-ivory-role="wallpaper"] .date-passive-label {
+  display: block;
+}
+
+body[data-ivory-role="wallpaper"] .memo-panel {
+  overflow: hidden;
+}
+
+body[data-ivory-role="wallpaper"] .memo-preview {
+  display: block !important;
+}
+
+body[data-ivory-role="wallpaper"] .memo-input {
+  display: none !important;
+}
+
+body[data-ivory-role="wallpaper"] .todo-main,
+body[data-ivory-role="wallpaper"] .todo-checkbox {
+  cursor: default;
+}
+
+body[data-ivory-role="wallpaper"] .todo-checkbox {
+  pointer-events: none;
+}
+
+body[data-ivory-role="editor"] .date-passive-label {
+  display: none;
 }
 
 .is-hidden {
