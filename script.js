@@ -8,6 +8,7 @@
   dailyRecords: "ivory.dailyRecords",
   selectedDateKey: "ivory.selectedDateKey",
   calendarMonthKey: "ivory.calendarMonthKey",
+  lastLaunchDate: "ivory.lastLaunchDate",
 };
 
 const ASSET_DB = {
@@ -109,6 +110,7 @@ const el = {
   memoPreviewBtn: document.querySelector("#memoPreviewBtn"),
   todoForm: document.querySelector("#todoForm"),
   todoInput: document.querySelector("#todoInput"),
+  todoDeadlineInput: document.querySelector("#todoDeadlineInput"),
   todoStatus: document.querySelector("#todoStatus"),
   todoList: document.querySelector("#todoList"),
   todoTemplate: document.querySelector("#todoTemplate"),
@@ -129,6 +131,7 @@ init().catch((error) => {
 
 async function init() {
   state.grid = migrateGrid(state.grid);
+  applyDailyCarryOverOnFirstLaunch();
   persistGrid({ skipSnapshot: true });
   hydrateSelectedDayState();
   mirrorCurrentDayLegacyStorage();
@@ -254,8 +257,14 @@ function bindEvents() {
     if (!text) {
       return;
     }
-    state.todos.unshift({ id: makeId(), text, done: false });
+    state.todos.push({
+      id: makeId(),
+      text,
+      done: false,
+      deadline: normalizeDeadlineInputValue(el.todoDeadlineInput.value),
+    });
     el.todoInput.value = "";
+    el.todoDeadlineInput.value = "";
     saveCurrentDayRecord();
     renderTodos();
     renderSelectedDateUI();
@@ -623,6 +632,7 @@ function getDayRecord(dateKey) {
 
 function saveCurrentDayRecord() {
   const previous = normalizeDayRecord(state.dailyRecords[state.selectedDateKey]);
+  state.todos = sortTodos(state.todos);
   const nextRecord = normalizeDayRecord({
     memo: state.memo,
     todos: state.todos,
@@ -690,6 +700,7 @@ function renderMemoPreview() {
 
 function renderTodos() {
   el.todoList.innerHTML = "";
+  state.todos = sortTodos(state.todos);
   const stats = getTodoStats(state.todos);
   el.todoStatus.textContent = `${stats.total} 项待办，已完成 ${stats.done} 项`;
 
@@ -697,14 +708,45 @@ function renderTodos() {
     const item = el.todoTemplate.content.firstElementChild.cloneNode(true);
     const checkbox = item.querySelector(".todo-checkbox");
     const text = item.querySelector(".todo-text");
+    const deadline = item.querySelector(".todo-deadline");
+    const edit = item.querySelector(".todo-edit");
     const remove = item.querySelector(".todo-remove");
 
     checkbox.checked = todo.done;
     checkbox.disabled = !VIEW_CONTEXT.isEditor;
+    edit.disabled = !VIEW_CONTEXT.isEditor;
     text.textContent = todo.text;
+    deadline.textContent = formatTodoDeadline(todo.deadline, todo.done);
+    deadline.classList.toggle("is-overdue", isTodoOverdue(todo));
 
     checkbox.addEventListener("change", () => {
       todo.done = checkbox.checked;
+      saveCurrentDayRecord();
+      renderTodos();
+      renderSelectedDateUI();
+      renderCalendar();
+    });
+
+    edit.addEventListener("click", () => {
+      const nextText = window.prompt("编辑待办内容", todo.text);
+      if (nextText === null) {
+        return;
+      }
+      const trimmed = nextText.trim().slice(0, 120);
+      if (!trimmed) {
+        window.alert("待办内容不能为空。");
+        return;
+      }
+      const currentDeadlineInput = todo.deadline ? toDateTimeLocalValue(todo.deadline) : "";
+      const nextDeadlineInput = window.prompt(
+        "编辑截止时间，格式例如 2026-03-25T18:30，留空表示无截止时间",
+        currentDeadlineInput
+      );
+      if (nextDeadlineInput === null) {
+        return;
+      }
+      todo.text = trimmed;
+      todo.deadline = normalizeDeadlineInputValue(nextDeadlineInput);
       saveCurrentDayRecord();
       renderTodos();
       renderSelectedDateUI();
@@ -806,7 +848,9 @@ function renderCalendarSidebar() {
   record.todos.slice(0, 6).forEach((todo) => {
     const item = document.createElement("li");
     item.className = `calendar-todo-item${todo.done ? " is-done" : ""}`;
-    item.textContent = todo.text;
+    item.textContent = todo.deadline
+      ? `${todo.text} · ${formatTodoDeadline(todo.deadline, todo.done, { compact: true })}`
+      : todo.text;
     el.calendarTodoPreview.append(item);
   });
 }
@@ -1134,10 +1178,115 @@ function formatTime(value) {
   }
 }
 
+function normalizeDeadlineValue(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  const normalized = value.trim().replace(" ", "T");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString();
+}
+
+function normalizeDeadlineInputValue(value) {
+  return normalizeDeadlineValue(value);
+}
+
+function toDateTimeLocalValue(value) {
+  const iso = normalizeDeadlineValue(value);
+  if (!iso) {
+    return "";
+  }
+  const date = new Date(iso);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function sortTodos(todos) {
+  return [...normalizeTodosShallow(todos)].sort(compareTodosByDeadline);
+}
+
+function normalizeTodosShallow(rows) {
+  return Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+}
+
+function compareTodosByDeadline(left, right) {
+  const leftDeadline = deadlineRank(left.deadline);
+  const rightDeadline = deadlineRank(right.deadline);
+
+  if (leftDeadline !== rightDeadline) {
+    return leftDeadline - rightDeadline;
+  }
+
+  return String(left.text || "").localeCompare(String(right.text || ""), "zh-CN");
+}
+
+function deadlineRank(value) {
+  const normalized = normalizeDeadlineValue(value);
+  if (!normalized) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return new Date(normalized).getTime();
+}
+
+function isTodoOverdue(todo) {
+  if (todo.done || !todo.deadline) {
+    return false;
+  }
+  return deadlineRank(todo.deadline) < Date.now();
+}
+
+function formatTodoDeadline(value, done, options = {}) {
+  const normalized = normalizeDeadlineValue(value);
+  if (!normalized) {
+    return "未设置截止时间";
+  }
+
+  const date = new Date(normalized);
+  const formatter = new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const prefix = done ? "已截止于" : isTodoOverdue({ deadline: normalized, done: false }) ? "已逾期" : "截止";
+  return options.compact ? formatter.format(date) : `${prefix} ${formatter.format(date)}`;
+}
+
 function getTodoStats(todos) {
   const total = Array.isArray(todos) ? todos.length : 0;
   const done = Array.isArray(todos) ? todos.filter((item) => item.done).length : 0;
   return { total, done };
+}
+
+function applyDailyCarryOverOnFirstLaunch() {
+  const todayKey = getTodayKey();
+  const lastLaunchDate = readStorageMaybe(STORAGE_KEYS.lastLaunchDate);
+  if (lastLaunchDate === todayKey) {
+    return;
+  }
+
+  saveStorage(STORAGE_KEYS.lastLaunchDate, todayKey, { skipSnapshot: true });
+
+  const latestDailyRecords = normalizeDailyRecords(readStorageMaybe(STORAGE_KEYS.dailyRecords));
+  if (Object.keys(latestDailyRecords).length) {
+    state.dailyRecords = latestDailyRecords;
+  }
+
+  if (!state.dailyRecords[todayKey]) {
+    const sourceDateKey = findCarryOverSourceDate(todayKey);
+    if (sourceDateKey) {
+      const sourceRecord = getDayRecordSnapshot(state.dailyRecords[sourceDateKey]);
+      const carriedRecord = createCarryOverRecord(sourceRecord);
+      if (carriedRecord) {
+        state.dailyRecords[todayKey] = carriedRecord;
+        state.selectedDateKey = todayKey;
+        state.calendarMonthKey = getMonthKey(todayKey);
+      }
+    }
+  }
 }
 
 function readViewContext() {
@@ -1207,6 +1356,7 @@ function hasAnyStoredState() {
     STORAGE_KEYS.todos,
     STORAGE_KEYS.background,
     STORAGE_KEYS.grid,
+    STORAGE_KEYS.lastLaunchDate,
   ].some((key) => localStorage.getItem(key) !== null);
 }
 
@@ -1250,9 +1400,43 @@ function normalizeDayRecord(record) {
 
   return {
     memo: typeof record.memo === "string" ? record.memo : "",
-    todos: normalizeTodos(record.todos),
+    todos: sortTodos(normalizeTodos(record.todos)),
     updatedAt,
   };
+}
+
+function getDayRecordSnapshot(record) {
+  return normalizeDayRecord(record);
+}
+
+function createCarryOverRecord(sourceRecord) {
+  const memo = String(sourceRecord.memo || "");
+  const todos = sortTodos(
+    normalizeTodos(sourceRecord.todos)
+      .filter((todo) => !todo.done)
+      .map((todo) => ({
+        ...todo,
+        id: makeId(),
+        done: false,
+      }))
+  );
+
+  if (!memo.trim() && !todos.length) {
+    return null;
+  }
+
+  return {
+    memo,
+    todos,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function findCarryOverSourceDate(todayKey) {
+  return Object.keys(state.dailyRecords)
+    .filter((dateKey) => dateKey < todayKey)
+    .sort((a, b) => b.localeCompare(a))
+    .find((dateKey) => hasRecordedDay(state.dailyRecords[dateKey]));
 }
 
 function hasRecordedDay(record) {
@@ -1301,6 +1485,7 @@ function normalizeTodos(rows) {
       id: String(row?.id || makeId()),
       text: String(row?.text || "").trim().slice(0, 120),
       done: Boolean(row?.done),
+      deadline: normalizeDeadlineValue(row?.deadline),
     }))
     .filter((row) => row.text);
 }

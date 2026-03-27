@@ -96,6 +96,7 @@
           </div>
           <form id="todoForm" class="todo-form">
             <input id="todoInput" type="text" maxlength="120" placeholder="输入待办后按 Enter" />
+            <input id="todoDeadlineInput" type="datetime-local" />
             <button class="btn btn-mini" type="submit">添加</button>
           </form>
           <ul id="todoList" class="todo-list"></ul>
@@ -183,11 +184,17 @@
 
     <template id="todoTemplate">
       <li class="todo-item">
-        <label class="todo-main">
-          <input class="todo-checkbox" type="checkbox" />
-          <span class="todo-text"></span>
-        </label>
-        <button class="todo-remove" type="button" aria-label="删除待办">删除</button>
+        <div class="todo-main">
+          <label class="todo-checkline">
+            <input class="todo-checkbox" type="checkbox" />
+            <span class="todo-text"></span>
+          </label>
+          <p class="todo-deadline"></p>
+        </div>
+        <div class="todo-actions">
+          <button class="todo-edit" type="button">编辑</button>
+          <button class="todo-remove" type="button" aria-label="删除待办">删除</button>
+        </div>
       </li>
     </template>
 
