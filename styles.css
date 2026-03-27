@@ -399,16 +399,69 @@ textarea {
   gap: 8px;
 }
 
-.todo-form input {
+.todo-form input,
+.todo-deadline-field {
   border-radius: 10px;
   border: 1px solid var(--line-soft);
   background: rgba(9, 16, 28, 0.76);
   color: var(--text-main);
+}
+
+.todo-form input {
   padding: 8px 10px;
 }
 
 .todo-form input::placeholder {
   color: rgba(174, 191, 216, 0.6);
+}
+
+.todo-deadline-field {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.todo-deadline-field input {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  padding-right: 38px;
+}
+
+.todo-deadline-field.is-empty input {
+  color: transparent;
+}
+
+.todo-deadline-field.is-empty input::-webkit-datetime-edit {
+  color: transparent;
+}
+
+.todo-deadline-field input::-webkit-calendar-picker-indicator {
+  opacity: 0.92;
+  filter: invert(1) brightness(1.25);
+  cursor: pointer;
+}
+
+.todo-deadline-field input::-webkit-clear-button,
+.todo-deadline-field input::-webkit-inner-spin-button {
+  display: none;
+}
+
+.todo-deadline-placeholder {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(174, 191, 216, 0.72);
+  font-size: 14px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.todo-deadline-field:not(.is-empty) .todo-deadline-placeholder,
+.todo-deadline-field:focus-within .todo-deadline-placeholder {
+  opacity: 0;
 }
 
 .todo-list {

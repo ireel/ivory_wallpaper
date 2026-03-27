@@ -110,6 +110,7 @@ const el = {
   memoPreviewBtn: document.querySelector("#memoPreviewBtn"),
   todoForm: document.querySelector("#todoForm"),
   todoInput: document.querySelector("#todoInput"),
+  todoDeadlineField: document.querySelector("#todoDeadlineField"),
   todoDeadlineInput: document.querySelector("#todoDeadlineInput"),
   todoStatus: document.querySelector("#todoStatus"),
   todoList: document.querySelector("#todoList"),
@@ -145,6 +146,7 @@ async function init() {
   applyWindowRoleUI();
   applyGridAndLayout();
   syncGridInputs();
+  syncTodoDeadlineField();
   initClock();
   initMemo();
   renderTodos();
@@ -251,6 +253,9 @@ function bindEvents() {
   el.memoEditBtn.addEventListener("click", () => switchMemoMode("edit"));
   el.memoPreviewBtn.addEventListener("click", () => switchMemoMode("preview"));
 
+  el.todoDeadlineInput.addEventListener("input", syncTodoDeadlineField);
+  el.todoDeadlineInput.addEventListener("change", syncTodoDeadlineField);
+
   el.todoForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const text = el.todoInput.value.trim();
@@ -265,6 +270,7 @@ function bindEvents() {
     });
     el.todoInput.value = "";
     el.todoDeadlineInput.value = "";
+    syncTodoDeadlineField();
     saveCurrentDayRecord();
     renderTodos();
     renderSelectedDateUI();
@@ -413,6 +419,13 @@ function applyWindowRoleUI() {
     closeModal(el.calendarModal);
     el.gridPanel.classList.add("is-hidden");
   }
+}
+
+function syncTodoDeadlineField() {
+  if (!el.todoDeadlineField || !el.todoDeadlineInput) {
+    return;
+  }
+  el.todoDeadlineField.classList.toggle("is-empty", !el.todoDeadlineInput.value);
 }
 
 function handleStorageSync(event) {

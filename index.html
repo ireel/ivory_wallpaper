@@ -96,7 +96,10 @@
           </div>
           <form id="todoForm" class="todo-form">
             <input id="todoInput" type="text" maxlength="120" placeholder="输入待办后按 Enter" />
-            <input id="todoDeadlineInput" type="datetime-local" />
+            <div id="todoDeadlineField" class="todo-deadline-field is-empty">
+              <span class="todo-deadline-placeholder">选择截止时间</span>
+              <input id="todoDeadlineInput" type="datetime-local" aria-label="选择截止时间" />
+            </div>
             <button class="btn btn-mini" type="submit">添加</button>
           </form>
           <ul id="todoList" class="todo-list"></ul>
