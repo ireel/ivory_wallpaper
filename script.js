@@ -1288,6 +1288,9 @@ function applyDailyCarryOverOnFirstLaunch() {
     state.dailyRecords = latestDailyRecords;
   }
 
+  state.selectedDateKey = todayKey;
+  state.calendarMonthKey = getMonthKey(todayKey);
+
   if (!state.dailyRecords[todayKey]) {
     const sourceDateKey = findCarryOverSourceDate(todayKey);
     if (sourceDateKey) {
@@ -1295,11 +1298,30 @@ function applyDailyCarryOverOnFirstLaunch() {
       const carriedRecord = createCarryOverRecord(sourceRecord);
       if (carriedRecord) {
         state.dailyRecords[todayKey] = carriedRecord;
-        state.selectedDateKey = todayKey;
-        state.calendarMonthKey = getMonthKey(todayKey);
       }
     }
   }
+
+  const todayRecord = state.dailyRecords[todayKey];
+  if (!todayRecord) {
+    return;
+  }
+
+  const normalizedTodayRecord = normalizeDayRecord(todayRecord);
+  const clearedRecord = createActiveDayRecord(normalizedTodayRecord);
+  if (clearedRecord.todos.length === normalizedTodayRecord.todos.length) {
+    return;
+  }
+
+  if (hasRecordedDay(clearedRecord)) {
+    state.dailyRecords[todayKey] = {
+      ...clearedRecord,
+      updatedAt: new Date().toISOString(),
+    };
+    return;
+  }
+
+  delete state.dailyRecords[todayKey];
 }
 
 function readViewContext() {
@@ -1442,6 +1464,14 @@ function createCarryOverRecord(sourceRecord) {
     memo,
     todos,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function createActiveDayRecord(record) {
+  const normalized = normalizeDayRecord(record);
+  return {
+    ...normalized,
+    todos: sortTodos(normalized.todos.filter((todo) => !todo.done)),
   };
 }
 
