@@ -43,6 +43,8 @@ const DEFAULT_WEATHER = {
   effect: "rain",
   enabled: true,
   intensity: 0.56,
+  wind: 0.35,
+  opacity: 0.72,
 };
 
 const PRESET_BACKGROUNDS = [
@@ -99,6 +101,17 @@ const el = {
   openCalendarModal: document.querySelector("#openCalendarModal"),
   closeCalendarModal: document.querySelector("#closeCalendarModal"),
   calendarModal: document.querySelector("#calendarModal"),
+  toggleWeatherPanel: document.querySelector("#toggleWeatherPanel"),
+  weatherPanel: document.querySelector("#weatherPanel"),
+  weatherModeGroup: document.querySelector("#weatherModeGroup"),
+  weatherIntensity: document.querySelector("#weatherIntensity"),
+  weatherIntensityValue: document.querySelector("#weatherIntensityValue"),
+  weatherWind: document.querySelector("#weatherWind"),
+  weatherWindValue: document.querySelector("#weatherWindValue"),
+  weatherOpacity: document.querySelector("#weatherOpacity"),
+  weatherOpacityValue: document.querySelector("#weatherOpacityValue"),
+  weatherRuntimeHint: document.querySelector("#weatherRuntimeHint"),
+  resetWeatherBtn: document.querySelector("#resetWeatherBtn"),
   openStartupModal: document.querySelector("#openStartupModal"),
   closeStartupModal: document.querySelector("#closeStartupModal"),
   startupModal: document.querySelector("#startupModal"),
@@ -176,6 +189,7 @@ async function init() {
   renderBackgroundOptions();
   applyWindowRoleUI();
   applyGridAndLayout();
+  syncWeatherInputs();
   syncGridInputs();
   syncTodoDeadlineField();
   initClock();
@@ -194,6 +208,9 @@ function bindEvents() {
   el.closeBackgroundModal.addEventListener("click", () => closeModal(el.backgroundModal));
   el.openCalendarModal.addEventListener("click", () => openModal(el.calendarModal));
   el.closeCalendarModal.addEventListener("click", () => closeModal(el.calendarModal));
+  el.toggleWeatherPanel?.addEventListener("click", () => {
+    el.weatherPanel?.classList.toggle("is-hidden");
+  });
   el.openStartupModal?.addEventListener("click", () => {
     openModal(el.startupModal);
     STARTUP_SETTINGS.refresh().catch((error) => {
@@ -219,6 +236,8 @@ function bindEvents() {
       closeModal(el.backgroundModal);
       closeModal(el.calendarModal);
       closeModal(el.startupModal);
+      el.weatherPanel?.classList.add("is-hidden");
+      el.gridPanel.classList.add("is-hidden");
     }
   });
 
@@ -231,6 +250,25 @@ function bindEvents() {
 
   el.toggleGridPanel.addEventListener("click", () => {
     el.gridPanel.classList.toggle("is-hidden");
+  });
+
+  el.weatherModeGroup?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-weather-mode]");
+    if (!button) {
+      return;
+    }
+    setWeatherMode(button.dataset.weatherMode || "off");
+  });
+
+  [el.weatherIntensity, el.weatherWind, el.weatherOpacity].forEach((input) => {
+    input?.addEventListener("input", syncWeatherFromInputs);
+  });
+
+  el.resetWeatherBtn?.addEventListener("click", () => {
+    state.weather = normalizeWeather(DEFAULT_WEATHER);
+    persistWeather();
+    applyWeather();
+    syncWeatherInputs();
   });
 
   [
@@ -467,6 +505,8 @@ function applyWindowRoleUI() {
   if (!VIEW_CONTEXT.isEditor) {
     closeModal(el.backgroundModal);
     closeModal(el.calendarModal);
+    closeModal(el.startupModal);
+    el.weatherPanel?.classList.add("is-hidden");
     el.gridPanel.classList.add("is-hidden");
   }
 }
@@ -502,6 +542,7 @@ function handleStorageSync(event) {
   if (event.key === STORAGE_KEYS.weather) {
     state.weather = normalizeWeather(readStorage(STORAGE_KEYS.weather, DEFAULT_WEATHER));
     applyWeather();
+    syncWeatherInputs();
     return;
   }
 
@@ -583,6 +624,7 @@ function applySnapshotState(snapshot) {
     });
 
   applyGridAndLayout();
+  syncWeatherInputs();
   syncGridInputs();
   initMemo();
   renderTodos();
@@ -662,6 +704,76 @@ function persistGrid(options = {}) {
 
 function persistWeather(options = {}) {
   saveStorage(STORAGE_KEYS.weather, state.weather, options);
+}
+
+function setWeatherMode(mode) {
+  if (mode === "rain") {
+    state.weather = normalizeWeather({
+      ...state.weather,
+      effect: "rain",
+      enabled: true,
+    });
+  } else {
+    state.weather = normalizeWeather({
+      ...state.weather,
+      enabled: false,
+    });
+  }
+
+  persistWeather();
+  applyWeather();
+  syncWeatherInputs();
+}
+
+function syncWeatherFromInputs() {
+  state.weather = normalizeWeather({
+    ...state.weather,
+    intensity: el.weatherIntensity?.value,
+    wind: el.weatherWind?.value,
+    opacity: el.weatherOpacity?.value,
+  });
+
+  persistWeather();
+  applyWeather();
+  syncWeatherInputs();
+}
+
+function syncWeatherInputs() {
+  if (!el.weatherIntensity || !el.weatherWind || !el.weatherOpacity) {
+    return;
+  }
+
+  el.weatherIntensity.value = String(state.weather.intensity);
+  el.weatherWind.value = String(state.weather.wind);
+  el.weatherOpacity.value = String(state.weather.opacity);
+
+  if (el.weatherIntensityValue) {
+    el.weatherIntensityValue.value = state.weather.intensity.toFixed(2);
+    el.weatherIntensityValue.textContent = state.weather.intensity.toFixed(2);
+  }
+
+  if (el.weatherWindValue) {
+    el.weatherWindValue.value = state.weather.wind.toFixed(2);
+    el.weatherWindValue.textContent = `${state.weather.wind > 0 ? "+" : ""}${state.weather.wind.toFixed(2)}`;
+  }
+
+  if (el.weatherOpacityValue) {
+    el.weatherOpacityValue.value = state.weather.opacity.toFixed(2);
+    el.weatherOpacityValue.textContent = state.weather.opacity.toFixed(2);
+  }
+
+  const activeMode = state.weather.enabled ? state.weather.effect : "off";
+  el.weatherModeGroup?.querySelectorAll("[data-weather-mode]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.weatherMode === activeMode);
+  });
+
+  if (el.weatherRuntimeHint) {
+    const modeLabel = activeMode === "rain" ? "下雨" : "关闭";
+    const windLabel =
+      state.weather.wind > 0.08 ? "向右偏移" : state.weather.wind < -0.08 ? "向左偏移" : "基本垂直";
+    el.weatherRuntimeHint.textContent =
+      `当前效果: ${modeLabel} | 强度 ${state.weather.intensity.toFixed(2)} | ${windLabel} | 透明度 ${state.weather.opacity.toFixed(2)}`;
+  }
 }
 
 function persistSnapshot() {
@@ -1096,6 +1208,7 @@ async function applyImportedConfig(config) {
   applyWeather();
   renderBackgroundOptions();
   applyGridAndLayout();
+  syncWeatherInputs();
   syncGridInputs();
   initMemo();
   renderTodos();
@@ -1599,6 +1712,8 @@ function normalizeWeather(weather) {
     effect: normalizedEffect,
     enabled,
     intensity: clampFloat(weather?.intensity, 0.2, 1, 2),
+    wind: clampFloat(weather?.wind, -1, 1, 2),
+    opacity: clampFloat(weather?.opacity, 0.25, 1, 2),
   };
 }
 
@@ -1624,15 +1739,22 @@ function syncWeatherMetrics() {
 
   const root = document.documentElement;
   const intensity = state.weather?.intensity ?? DEFAULT_WEATHER.intensity;
+  const wind = state.weather?.wind ?? DEFAULT_WEATHER.wind;
+  const opacityScale = state.weather?.opacity ?? DEFAULT_WEATHER.opacity;
   const fallFarY = clampFloat(window.innerHeight * (0.22 + intensity * 0.12), 180, 320, 2);
   const fallNearY = clampFloat(window.innerHeight * (0.3 + intensity * 0.18), 240, 420, 2);
-  const driftFarX = clampFloat(window.innerWidth * (-0.03 - intensity * 0.018), -96, -28, 2);
-  const driftNearX = clampFloat(window.innerWidth * (-0.04 - intensity * 0.025), -128, -42, 2);
+  const windOffset = wind * (24 + intensity * 38);
+  const driftFarX = clampFloat(window.innerWidth * (-0.03 - intensity * 0.018) + windOffset, -140, 96, 2);
+  const driftNearX = clampFloat(window.innerWidth * (-0.04 - intensity * 0.025) + windOffset * 1.28, -180, 128, 2);
   const farDuration = clampFloat(1.95 - intensity * 0.62, 1.08, 1.95, 2);
   const nearDuration = clampFloat(1.42 - intensity * 0.42, 0.78, 1.42, 2);
-  const farOpacity = clampFloat(0.1 + intensity * 0.12, 0.1, 0.22, 2);
-  const nearOpacity = clampFloat(0.16 + intensity * 0.2, 0.16, 0.36, 2);
-  const layerOpacity = clampFloat(0.5 + intensity * 0.4, 0.5, 0.9, 2);
+  const farOpacity = clampFloat((0.1 + intensity * 0.12) * opacityScale, 0.08, 0.28, 2);
+  const nearOpacity = clampFloat((0.16 + intensity * 0.2) * opacityScale, 0.12, 0.42, 2);
+  const layerOpacity = clampFloat((0.5 + intensity * 0.4) * opacityScale, 0.22, 0.96, 2);
+  const farSizeX = clampFloat(252 - intensity * 64, 176, 252, 2);
+  const farSizeY = clampFloat(236 - intensity * 48, 176, 236, 2);
+  const nearSizeX = clampFloat(294 - intensity * 72, 196, 294, 2);
+  const nearSizeY = clampFloat(256 - intensity * 56, 188, 256, 2);
 
   root.style.setProperty("--weather-layer-opacity", `${layerOpacity}`);
   root.style.setProperty("--rain-far-opacity", `${farOpacity}`);
@@ -1643,6 +1765,8 @@ function syncWeatherMetrics() {
   root.style.setProperty("--rain-fall-far-y", `${fallFarY}px`);
   root.style.setProperty("--rain-fall-near-x", `${driftNearX}px`);
   root.style.setProperty("--rain-fall-near-y", `${fallNearY}px`);
+  root.style.setProperty("--rain-far-size", `${farSizeX}px ${farSizeY}px`);
+  root.style.setProperty("--rain-near-size", `${nearSizeX}px ${nearSizeY}px`);
 }
 
 function normalizeTodos(rows) {

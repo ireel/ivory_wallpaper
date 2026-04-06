@@ -15,6 +15,7 @@
     <header class="hud-controls">
       <button id="openBackgroundModal" class="btn btn-primary" type="button">更换背景</button>
       <button id="openCalendarModal" class="btn btn-ghost" type="button">日历记录</button>
+      <button id="toggleWeatherPanel" class="btn btn-ghost" type="button">天气效果</button>
       <button id="toggleGridPanel" class="btn btn-ghost" type="button">网格微调</button>
       <button id="openStartupModal" class="btn btn-ghost" type="button">启动设置</button>
       <button id="exportConfigBtn" class="btn btn-ghost" type="button">保存配置</button>
@@ -56,6 +57,43 @@
       </label>
       <p class="panel-tip" id="gridRuntimeHint">当前换算值: --</p>
       <button id="resetGridBtn" class="btn btn-mini" type="button">恢复默认网格</button>
+    </aside>
+
+    <aside class="weather-panel is-hidden" id="weatherPanel" aria-label="天气效果面板">
+      <p class="panel-title">天气效果</p>
+      <p class="panel-tip">参考 web-weather 的天气参数组织方式，但只保留适合壁纸常驻的轻量特效层。</p>
+
+      <div class="weather-mode-group" id="weatherModeGroup" role="group" aria-label="天气模式">
+        <button class="weather-mode-btn" data-weather-mode="off" type="button">关闭</button>
+        <button class="weather-mode-btn" data-weather-mode="rain" type="button">下雨</button>
+      </div>
+
+      <label class="field">
+        <span>雨量强度</span>
+        <div class="range-row">
+          <input id="weatherIntensity" type="range" min="0.2" max="1" step="0.05" />
+          <output id="weatherIntensityValue" for="weatherIntensity">0.56</output>
+        </div>
+      </label>
+
+      <label class="field">
+        <span>风向偏移</span>
+        <div class="range-row">
+          <input id="weatherWind" type="range" min="-1" max="1" step="0.05" />
+          <output id="weatherWindValue" for="weatherWind">0.35</output>
+        </div>
+      </label>
+
+      <label class="field">
+        <span>图层透明度</span>
+        <div class="range-row">
+          <input id="weatherOpacity" type="range" min="0.25" max="1" step="0.05" />
+          <output id="weatherOpacityValue" for="weatherOpacity">0.72</output>
+        </div>
+      </label>
+
+      <p class="panel-tip" id="weatherRuntimeHint">当前效果: --</p>
+      <button id="resetWeatherBtn" class="btn btn-mini" type="button">恢复默认天气</button>
     </aside>
 
     <section class="widget clock-widget" aria-label="时间区域">

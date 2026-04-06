@@ -29,6 +29,8 @@
   --rain-fall-far-y: 240px;
   --rain-fall-near-x: -76px;
   --rain-fall-near-y: 336px;
+  --rain-far-size: 220px 220px;
+  --rain-near-size: 260px 240px;
 
   --clock-top: 72px;
   --clock-width: 500px;
@@ -107,14 +109,14 @@ body[data-weather-effect="rain"] .weather-layer {
 
 body[data-weather-effect="rain"] .weather-layer::before {
   opacity: var(--rain-far-opacity);
-  background-size: 220px 220px;
+  background-size: var(--rain-far-size);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23dff2ff' stroke-opacity='.68' stroke-width='1.1' stroke-linecap='round'%3E%3Cpath d='M34 2l-18 44'/%3E%3Cpath d='M112 22l-16 38'/%3E%3Cpath d='M188 6l-20 48'/%3E%3Cpath d='M72 108l-18 42'/%3E%3Cpath d='M156 120l-14 34'/%3E%3Cpath d='M22 170l-16 38'/%3E%3Cpath d='M122 178l-18 42'/%3E%3Cpath d='M206 154l-12 30'/%3E%3C/g%3E%3C/svg%3E");
   animation: rain-far var(--rain-far-duration) linear infinite;
 }
 
 body[data-weather-effect="rain"] .weather-layer::after {
   opacity: var(--rain-near-opacity);
-  background-size: 260px 240px;
+  background-size: var(--rain-near-size);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 260 240'%3E%3Cg fill='none' stroke='%23f3fbff' stroke-opacity='.8' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M52 0l-24 58'/%3E%3Cpath d='M160 20l-22 54'/%3E%3Cpath d='M236 8l-26 62'/%3E%3Cpath d='M108 126l-24 56'/%3E%3Cpath d='M206 138l-18 46'/%3E%3Cpath d='M34 172l-24 58'/%3E%3Cpath d='M150 188l-20 48'/%3E%3C/g%3E%3C/svg%3E");
   animation: rain-near var(--rain-near-duration) linear infinite;
 }
@@ -219,6 +221,70 @@ body[data-weather-effect="rain"] .weather-layer::after {
   backdrop-filter: blur(10px);
   display: grid;
   gap: 8px;
+}
+
+.weather-panel {
+  position: fixed;
+  top: 68px;
+  right: 308px;
+  z-index: 12;
+  width: 300px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line-soft);
+  background: rgba(4, 12, 23, 0.9);
+  backdrop-filter: blur(10px);
+  display: grid;
+  gap: 10px;
+}
+
+.weather-mode-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.weather-mode-btn {
+  border: 1px solid rgba(174, 191, 216, 0.22);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    rgba(8, 18, 30, 0.82);
+  color: var(--text-main);
+  padding: 9px 10px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.16s ease;
+}
+
+.weather-mode-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.weather-mode-btn.is-active {
+  border-color: rgba(78, 205, 196, 0.62);
+  background:
+    linear-gradient(135deg, rgba(78, 205, 196, 0.2), rgba(78, 205, 196, 0.08)),
+    rgba(8, 18, 30, 0.92);
+}
+
+.range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.range-row output {
+  font-size: 12px;
+  text-align: right;
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-title {
@@ -1035,6 +1101,7 @@ body[data-ivory-role="wallpaper"] .todo-form,
 body[data-ivory-role="wallpaper"] .todo-edit,
 body[data-ivory-role="wallpaper"] .todo-remove,
 body[data-ivory-role="wallpaper"] .modal,
+body[data-ivory-role="wallpaper"] .weather-panel,
 body[data-ivory-role="wallpaper"] .grid-panel,
 body[data-ivory-role="wallpaper"] #selectedDateTrigger {
   display: none !important;
@@ -1102,6 +1169,11 @@ body[data-ivory-role="editor"] .date-passive-label {
     right: auto;
   }
 
+  .weather-panel {
+    left: 298px;
+    right: auto;
+  }
+
   .clock-widget {
     top: max(var(--clock-top), 82px);
   }
@@ -1149,6 +1221,17 @@ body[data-ivory-role="editor"] .date-passive-label {
   .clock-widget {
     width: calc(100vw - 20px);
     top: max(var(--clock-top), 124px);
+  }
+
+  .weather-panel,
+  .grid-panel {
+    left: 14px;
+    right: 14px;
+    width: auto;
+  }
+
+  .weather-panel {
+    top: 236px;
   }
 
   .productivity-widget {
