@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -9,12 +9,14 @@
   <body>
     <div class="background-layer" id="backgroundLayer"></div>
     <div class="vignette"></div>
+    <div class="weather-layer" id="weatherLayer" aria-hidden="true" hidden></div>
     <div class="desktop-grid-overlay" id="desktopGrid"></div>
 
     <header class="hud-controls">
       <button id="openBackgroundModal" class="btn btn-primary" type="button">更换背景</button>
       <button id="openCalendarModal" class="btn btn-ghost" type="button">日历记录</button>
       <button id="toggleGridPanel" class="btn btn-ghost" type="button">网格微调</button>
+      <button id="openStartupModal" class="btn btn-ghost" type="button">启动设置</button>
       <button id="exportConfigBtn" class="btn btn-ghost" type="button">保存配置</button>
       <label for="configUpload" class="btn btn-ghost">加载配置</label>
       <input id="configUpload" type="file" accept="application/json" />
@@ -129,6 +131,35 @@
 
     <div
       class="modal is-hidden"
+      id="startupModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="startupModalTitle"
+    >
+      <div class="modal-panel settings-modal-panel">
+        <div class="modal-header">
+          <div>
+            <h2 id="startupModalTitle">启动设置</h2>
+            <p class="modal-subtitle">推荐使用应用内开机自启。登录 Windows 后会直接以壁纸模式启动。</p>
+          </div>
+          <button id="closeStartupModal" class="btn btn-mini" type="button">关闭</button>
+        </div>
+
+        <section class="settings-card">
+          <label class="setting-toggle" for="launchAtStartupToggle">
+            <div class="setting-copy">
+              <p class="setting-title">登录后自动启动</p>
+              <p class="setting-description">默认开启。开启后会通过 Windows 启动项自动拉起本程序，并使用桌面壁纸模式。</p>
+            </div>
+            <input id="launchAtStartupToggle" class="setting-checkbox todo-checkbox" type="checkbox" />
+          </label>
+          <p id="launchAtStartupStatus" class="setting-status">正在读取当前状态...</p>
+        </section>
+      </div>
+    </div>
+
+    <div
+      class="modal is-hidden"
       id="calendarModal"
       role="dialog"
       aria-modal="true"
@@ -201,6 +232,8 @@
       </li>
     </template>
 
+    <script src="./web/native-bridge.js"></script>
+    <script src="./web/startup-settings.js"></script>
     <script src="./script.js"></script>
   </body>
 </html>

@@ -20,6 +20,15 @@
   --icon-grid-offset-x: 0px;
   --icon-grid-offset-y: 0px;
   --icon-grid-opacity: 0.24;
+  --weather-layer-opacity: 0;
+  --rain-far-opacity: 0.16;
+  --rain-near-opacity: 0.28;
+  --rain-far-duration: 1.68s;
+  --rain-near-duration: 1.12s;
+  --rain-fall-far-x: -54px;
+  --rain-fall-far-y: 240px;
+  --rain-fall-near-x: -76px;
+  --rain-fall-near-y: 336px;
 
   --clock-top: 72px;
   --clock-width: 500px;
@@ -71,6 +80,45 @@ textarea {
     linear-gradient(180deg, rgba(2, 8, 16, 0.2), rgba(2, 8, 16, 0.58));
 }
 
+.weather-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  contain: strict;
+  transition: opacity 0.26s ease;
+}
+
+.weather-layer::before,
+.weather-layer::after {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  background-repeat: repeat;
+  background-position: 0 0;
+  transform: translateZ(0);
+  will-change: background-position, opacity;
+}
+
+body[data-weather-effect="rain"] .weather-layer {
+  opacity: var(--weather-layer-opacity);
+}
+
+body[data-weather-effect="rain"] .weather-layer::before {
+  opacity: var(--rain-far-opacity);
+  background-size: 220px 220px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23dff2ff' stroke-opacity='.68' stroke-width='1.1' stroke-linecap='round'%3E%3Cpath d='M34 2l-18 44'/%3E%3Cpath d='M112 22l-16 38'/%3E%3Cpath d='M188 6l-20 48'/%3E%3Cpath d='M72 108l-18 42'/%3E%3Cpath d='M156 120l-14 34'/%3E%3Cpath d='M22 170l-16 38'/%3E%3Cpath d='M122 178l-18 42'/%3E%3Cpath d='M206 154l-12 30'/%3E%3C/g%3E%3C/svg%3E");
+  animation: rain-far var(--rain-far-duration) linear infinite;
+}
+
+body[data-weather-effect="rain"] .weather-layer::after {
+  opacity: var(--rain-near-opacity);
+  background-size: 260px 240px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 260 240'%3E%3Cg fill='none' stroke='%23f3fbff' stroke-opacity='.8' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M52 0l-24 58'/%3E%3Cpath d='M160 20l-22 54'/%3E%3Cpath d='M236 8l-26 62'/%3E%3Cpath d='M108 126l-24 56'/%3E%3Cpath d='M206 138l-18 46'/%3E%3Cpath d='M34 172l-24 58'/%3E%3Cpath d='M150 188l-20 48'/%3E%3C/g%3E%3C/svg%3E");
+  animation: rain-near var(--rain-near-duration) linear infinite;
+}
+
 .desktop-grid-overlay {
   position: fixed;
   inset: 0;
@@ -82,6 +130,24 @@ textarea {
   background-size: var(--icon-grid-w) var(--icon-grid-h);
   background-position: var(--icon-grid-offset-x) var(--icon-grid-offset-y);
   transition: opacity 0.2s ease;
+}
+
+@keyframes rain-far {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: var(--rain-fall-far-x) var(--rain-fall-far-y);
+  }
+}
+
+@keyframes rain-near {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: var(--rain-fall-near-x) var(--rain-fall-near-y);
+  }
 }
 
 .hud-controls {
@@ -633,6 +699,57 @@ textarea {
   width: min(980px, calc(100vw - 28px));
 }
 
+
+.settings-modal-panel {
+  width: min(560px, calc(100vw - 30px));
+}
+
+.settings-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: rgba(8, 16, 29, 0.72);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.setting-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.setting-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.setting-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 640;
+}
+
+.setting-description,
+.setting-status {
+  margin: 0;
+  color: var(--text-subtle);
+  line-height: 1.5;
+}
+
+.setting-checkbox {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.todo-checkbox:disabled,
+.setting-checkbox:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -1080,5 +1197,13 @@ body[data-ivory-role="editor"] .date-passive-label {
 
   .calendar-sidebar {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-layer::before,
+  .weather-layer::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

@@ -1,6 +1,7 @@
-﻿const STORAGE_KEYS = {
+const STORAGE_KEYS = {
   background: "ivory.background",
   customBackground: "ivory.background.custom",
+  weather: "ivory.weather",
   memo: "ivory.memo",
   todos: "ivory.todos",
   grid: "ivory.grid",
@@ -17,6 +18,7 @@ const ASSET_DB = {
   store: "files",
   customBackgroundKey: "custom-background",
 };
+
 
 const DEFAULT_MEMO = `# 今日备忘
 
@@ -35,6 +37,12 @@ const DEFAULT_GRID = {
   offsetX: 72,
   offsetY: -7,
   opacity: 0.24,
+};
+
+const DEFAULT_WEATHER = {
+  effect: "rain",
+  enabled: true,
+  intensity: 0.56,
 };
 
 const PRESET_BACKGROUNDS = [
@@ -66,6 +74,7 @@ const state = {
   backgroundId: savedSnapshot?.backgroundId ?? readStorage(STORAGE_KEYS.background, PRESET_BACKGROUNDS[0].id),
   backgroundCustom: savedSnapshot?.backgroundCustom ?? readStorage(STORAGE_KEYS.customBackground, ""),
   backgroundCustomUrl: "",
+  weather: normalizeWeather(savedSnapshot?.weather ?? readStorage(STORAGE_KEYS.weather, DEFAULT_WEATHER)),
   memo: "",
   todos: [],
   grid: normalizeGrid(savedSnapshot?.grid ?? readStorage(STORAGE_KEYS.grid, DEFAULT_GRID)),
@@ -73,16 +82,26 @@ const state = {
   selectedDateKey: initialDailyState.selectedDateKey,
   calendarMonthKey: initialDailyState.calendarMonthKey,
   todayKeyCache: getTodayKey(),
+  startup: {
+    supported: false,
+    enabled: false,
+    defaultEnabled: true,
+    pending: false,
+  },
 };
 
 const el = {
   backgroundLayer: document.querySelector("#backgroundLayer"),
+  weatherLayer: document.querySelector("#weatherLayer"),
   openBackgroundModal: document.querySelector("#openBackgroundModal"),
   closeBackgroundModal: document.querySelector("#closeBackgroundModal"),
   backgroundModal: document.querySelector("#backgroundModal"),
   openCalendarModal: document.querySelector("#openCalendarModal"),
   closeCalendarModal: document.querySelector("#closeCalendarModal"),
   calendarModal: document.querySelector("#calendarModal"),
+  openStartupModal: document.querySelector("#openStartupModal"),
+  closeStartupModal: document.querySelector("#closeStartupModal"),
+  startupModal: document.querySelector("#startupModal"),
   backgroundOptions: document.querySelector("#backgroundOptions"),
   backgroundUpload: document.querySelector("#backgroundUpload"),
   toggleGridPanel: document.querySelector("#toggleGridPanel"),
@@ -124,7 +143,17 @@ const el = {
   calendarMemoPreview: document.querySelector("#calendarMemoPreview"),
   calendarTodoPreview: document.querySelector("#calendarTodoPreview"),
   calendarGoToday: document.querySelector("#calendarGoToday"),
+  launchAtStartupToggle: document.querySelector("#launchAtStartupToggle"),
+  launchAtStartupStatus: document.querySelector("#launchAtStartupStatus"),
 };
+
+const NATIVE_BRIDGE = window.IvoryNativeBridge.create();
+const STARTUP_SETTINGS = window.IvoryStartupSettings.create({
+  state,
+  elements: el,
+  viewContext: VIEW_CONTEXT,
+  nativeBridge: NATIVE_BRIDGE,
+});
 
 init().catch((error) => {
   console.error("Initialization failed:", error);
@@ -133,6 +162,7 @@ init().catch((error) => {
 async function init() {
   state.grid = migrateGrid(state.grid);
   applyDailyCarryOverOnFirstLaunch();
+  persistWeather({ skipSnapshot: true });
   persistGrid({ skipSnapshot: true });
   hydrateSelectedDayState();
   mirrorCurrentDayLegacyStorage();
@@ -142,6 +172,7 @@ async function init() {
   await refreshCustomBackgroundUrl();
   persistSnapshot();
   applyBackground();
+  applyWeather();
   renderBackgroundOptions();
   applyWindowRoleUI();
   applyGridAndLayout();
@@ -153,6 +184,7 @@ async function init() {
   renderSelectedDateUI();
   renderCalendar();
   bindEvents();
+  await STARTUP_SETTINGS.refresh();
   window.addEventListener("beforeunload", cleanupCustomBackgroundUrl);
   window.addEventListener("storage", handleStorageSync);
 }
@@ -162,9 +194,19 @@ function bindEvents() {
   el.closeBackgroundModal.addEventListener("click", () => closeModal(el.backgroundModal));
   el.openCalendarModal.addEventListener("click", () => openModal(el.calendarModal));
   el.closeCalendarModal.addEventListener("click", () => closeModal(el.calendarModal));
+  el.openStartupModal?.addEventListener("click", () => {
+    openModal(el.startupModal);
+    STARTUP_SETTINGS.refresh().catch((error) => {
+      console.error("Refresh startup settings failed:", error);
+    });
+  });
+  el.closeStartupModal?.addEventListener("click", () => closeModal(el.startupModal));
   el.selectedDateTrigger.addEventListener("click", () => openModal(el.calendarModal));
 
-  [el.backgroundModal, el.calendarModal].forEach((modal) => {
+  [el.backgroundModal, el.calendarModal, el.startupModal].forEach((modal) => {
+    if (!modal) {
+      return;
+    }
     modal.addEventListener("click", (event) => {
       if (event.target === modal) {
         closeModal(modal);
@@ -176,6 +218,7 @@ function bindEvents() {
     if (event.key === "Escape") {
       closeModal(el.backgroundModal);
       closeModal(el.calendarModal);
+      closeModal(el.startupModal);
     }
   });
 
@@ -292,6 +335,13 @@ function bindEvents() {
   el.calendarGoToday.addEventListener("click", () => {
     const todayKey = getTodayKey();
     setSelectedDate(todayKey, { syncMonth: true });
+  });
+
+  el.launchAtStartupToggle?.addEventListener("change", (event) => {
+    STARTUP_SETTINGS.handleToggle(event).catch((error) => {
+      console.error("Toggle startup setting failed:", error);
+      STARTUP_SETTINGS.setStatusMessage(error.message || "切换开机自启失败，请重试。");
+    });
   });
 
   window.addEventListener("resize", applyGridAndLayout);
@@ -449,6 +499,12 @@ function handleStorageSync(event) {
     return;
   }
 
+  if (event.key === STORAGE_KEYS.weather) {
+    state.weather = normalizeWeather(readStorage(STORAGE_KEYS.weather, DEFAULT_WEATHER));
+    applyWeather();
+    return;
+  }
+
   if (event.key === STORAGE_KEYS.customBackground) {
     state.backgroundCustom = readStorage(STORAGE_KEYS.customBackground, "");
     refreshCustomBackgroundUrl()
@@ -501,6 +557,7 @@ function handleStorageSync(event) {
 function applySnapshotState(snapshot) {
   state.backgroundId = String(snapshot.backgroundId || PRESET_BACKGROUNDS[0].id);
   state.backgroundCustom = String(snapshot.backgroundCustom || "");
+  state.weather = normalizeWeather(snapshot.weather ?? state.weather);
   state.grid = normalizeGrid(snapshot.grid || DEFAULT_GRID);
   state.dailyRecords = normalizeDailyRecords(snapshot.dailyRecords);
   state.selectedDateKey = sanitizeDateKey(snapshot.selectedDateKey, getTodayKey());
@@ -518,6 +575,7 @@ function applySnapshotState(snapshot) {
   refreshCustomBackgroundUrl()
     .then(() => {
       applyBackground();
+      applyWeather();
       renderBackgroundOptions();
     })
     .catch((error) => {
@@ -570,6 +628,7 @@ function applyGridAndLayout() {
     `当前换算: cell ${effective.cellW.toFixed(1)} x ${effective.cellH.toFixed(1)}, ` +
     `offset ${effective.offsetX.toFixed(1)}, ${effective.offsetY.toFixed(1)} | ` +
     `dpr ${dpr.toFixed(2)} | physical ${physicalWidth.toFixed(0)}x${physicalHeight.toFixed(0)}`;
+  syncWeatherMetrics();
 }
 
 function syncGridInputs() {
@@ -601,14 +660,19 @@ function persistGrid(options = {}) {
   saveStorage(STORAGE_KEYS.grid, state.grid, options);
 }
 
+function persistWeather(options = {}) {
+  saveStorage(STORAGE_KEYS.weather, state.weather, options);
+}
+
 function persistSnapshot() {
   saveStorage(
     STORAGE_KEYS.snapshot,
     {
-      version: 2,
+      version: 3,
       savedAt: new Date().toISOString(),
       backgroundId: state.backgroundId,
       backgroundCustom: state.backgroundCustom,
+      weather: state.weather,
       grid: state.grid,
       selectedDateKey: state.selectedDateKey,
       calendarMonthKey: state.calendarMonthKey,
@@ -918,13 +982,14 @@ function cleanupCustomBackgroundUrl() {
 async function exportConfig() {
   const serializedBackground = await serializeCustomBackgroundForExport();
   const payload = {
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     viewport: {
       width: window.innerWidth,
       height: window.innerHeight,
     },
     grid: state.grid,
+    weather: state.weather,
     background: {
       id: state.backgroundId,
       custom: serializedBackground,
@@ -969,6 +1034,11 @@ async function applyImportedConfig(config) {
   if (config.grid) {
     state.grid = normalizeGrid(config.grid);
     persistGrid({ skipSnapshot: true });
+  }
+
+  if (config.weather && typeof config.weather === "object") {
+    state.weather = normalizeWeather(config.weather);
+    persistWeather({ skipSnapshot: true });
   }
 
   if (config.background && typeof config.background === "object") {
@@ -1023,6 +1093,7 @@ async function applyImportedConfig(config) {
   persistSnapshot();
 
   applyBackground();
+  applyWeather();
   renderBackgroundOptions();
   applyGridAndLayout();
   syncGridInputs();
@@ -1390,6 +1461,7 @@ function hasAnyStoredState() {
     STORAGE_KEYS.memo,
     STORAGE_KEYS.todos,
     STORAGE_KEYS.background,
+    STORAGE_KEYS.weather,
     STORAGE_KEYS.grid,
     STORAGE_KEYS.lastLaunchDate,
   ].some((key) => localStorage.getItem(key) !== null);
@@ -1517,6 +1589,60 @@ function migrateGrid(grid) {
     };
   }
   return grid;
+}
+
+function normalizeWeather(weather) {
+  const effect = typeof weather?.effect === "string" ? weather.effect : DEFAULT_WEATHER.effect;
+  const normalizedEffect = effect === "rain" ? "rain" : "none";
+  const enabled = weather?.enabled !== false && normalizedEffect !== "none";
+  return {
+    effect: normalizedEffect,
+    enabled,
+    intensity: clampFloat(weather?.intensity, 0.2, 1, 2),
+  };
+}
+
+function applyWeather() {
+  const root = document.documentElement;
+  const effect = state.weather.enabled ? state.weather.effect : "none";
+
+  document.body.dataset.weatherEffect = effect;
+
+  if (!el.weatherLayer) {
+    return;
+  }
+
+  el.weatherLayer.hidden = effect === "none";
+  root.style.setProperty("--weather-layer-opacity", effect === "none" ? "0" : "1");
+  syncWeatherMetrics();
+}
+
+function syncWeatherMetrics() {
+  if (!el.weatherLayer) {
+    return;
+  }
+
+  const root = document.documentElement;
+  const intensity = state.weather?.intensity ?? DEFAULT_WEATHER.intensity;
+  const fallFarY = clampFloat(window.innerHeight * (0.22 + intensity * 0.12), 180, 320, 2);
+  const fallNearY = clampFloat(window.innerHeight * (0.3 + intensity * 0.18), 240, 420, 2);
+  const driftFarX = clampFloat(window.innerWidth * (-0.03 - intensity * 0.018), -96, -28, 2);
+  const driftNearX = clampFloat(window.innerWidth * (-0.04 - intensity * 0.025), -128, -42, 2);
+  const farDuration = clampFloat(1.95 - intensity * 0.62, 1.08, 1.95, 2);
+  const nearDuration = clampFloat(1.42 - intensity * 0.42, 0.78, 1.42, 2);
+  const farOpacity = clampFloat(0.1 + intensity * 0.12, 0.1, 0.22, 2);
+  const nearOpacity = clampFloat(0.16 + intensity * 0.2, 0.16, 0.36, 2);
+  const layerOpacity = clampFloat(0.5 + intensity * 0.4, 0.5, 0.9, 2);
+
+  root.style.setProperty("--weather-layer-opacity", `${layerOpacity}`);
+  root.style.setProperty("--rain-far-opacity", `${farOpacity}`);
+  root.style.setProperty("--rain-near-opacity", `${nearOpacity}`);
+  root.style.setProperty("--rain-far-duration", `${farDuration}s`);
+  root.style.setProperty("--rain-near-duration", `${nearDuration}s`);
+  root.style.setProperty("--rain-fall-far-x", `${driftFarX}px`);
+  root.style.setProperty("--rain-fall-far-y", `${fallFarY}px`);
+  root.style.setProperty("--rain-fall-near-x", `${driftNearX}px`);
+  root.style.setProperty("--rain-fall-near-y", `${fallNearY}px`);
 }
 
 function normalizeTodos(rows) {
