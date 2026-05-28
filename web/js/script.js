@@ -1,6 +1,7 @@
 const STORAGE_KEYS = {
   background: "ivory.background",
   customBackground: "ivory.background.custom",
+  customBackgroundFile: "ivory.background.customFile",
   weather: "ivory.weather",
   memo: "ivory.memo",
   todos: "ivory.todos",
@@ -76,6 +77,7 @@ const VIEW_CONTEXT = readViewContext();
 const state = {
   backgroundId: savedSnapshot?.backgroundId ?? readStorage(STORAGE_KEYS.background, PRESET_BACKGROUNDS[0].id),
   backgroundCustom: savedSnapshot?.backgroundCustom ?? readStorage(STORAGE_KEYS.customBackground, ""),
+  backgroundCustomFile: savedSnapshot?.backgroundCustomFile || readStorage(STORAGE_KEYS.customBackgroundFile, ""),
   backgroundCustomUrl: "",
   weather: normalizeWeather(savedSnapshot?.weather ?? readStorage(STORAGE_KEYS.weather, DEFAULT_WEATHER)),
   memo: "",
@@ -484,9 +486,13 @@ async function handleBackgroundUpload(event) {
 
   try {
     await saveCustomBackgroundBlob(file);
+    state.backgroundCustomFile = "";
+    saveStorage(STORAGE_KEYS.customBackgroundFile, "", { skipSnapshot: true });
     await refreshCustomBackgroundUrl();
   } catch {
     state.backgroundCustom = await readFileAsDataUrl(file);
+    state.backgroundCustomFile = "";
+    saveStorage(STORAGE_KEYS.customBackgroundFile, "", { skipSnapshot: true });
     try {
       saveStorage(STORAGE_KEYS.customBackground, state.backgroundCustom);
     } catch (error) {
@@ -591,6 +597,13 @@ function handleStorageSync(event) {
     return;
   }
 
+  if (event.key === STORAGE_KEYS.customBackgroundFile) {
+    state.backgroundCustomFile = readStorage(STORAGE_KEYS.customBackgroundFile, "");
+    applyBackground();
+    renderBackgroundOptions();
+    return;
+  }
+
   if (event.key === STORAGE_KEYS.grid) {
     state.grid = normalizeGrid(readStorage(STORAGE_KEYS.grid, DEFAULT_GRID));
     applyGridAndLayout();
@@ -630,6 +643,7 @@ function handleStorageSync(event) {
 function applySnapshotState(snapshot) {
   state.backgroundId = String(snapshot.backgroundId || PRESET_BACKGROUNDS[0].id);
   state.backgroundCustom = String(snapshot.backgroundCustom || "");
+  state.backgroundCustomFile = String(snapshot.backgroundCustomFile || readStorage(STORAGE_KEYS.customBackgroundFile, ""));
   state.weather = normalizeWeather(snapshot.weather ?? state.weather);
   state.grid = normalizeGrid(snapshot.grid || DEFAULT_GRID);
   state.dailyRecords = normalizeDailyRecords(snapshot.dailyRecords);
@@ -832,6 +846,7 @@ function persistSnapshot() {
       savedAt: new Date().toISOString(),
       backgroundId: state.backgroundId,
       backgroundCustom: state.backgroundCustom,
+      backgroundCustomFile: state.backgroundCustomFile,
       weather: state.weather,
       grid: state.grid,
       selectedDateKey: state.selectedDateKey,
@@ -1093,7 +1108,7 @@ function renderCalendarSidebar() {
 }
 
 function getRenderableCustomBackground() {
-  return state.backgroundCustomUrl || state.backgroundCustom || "";
+  return state.backgroundCustomUrl || state.backgroundCustom || filePathToFileUrl(state.backgroundCustomFile) || "";
 }
 
 async function migrateLegacyCustomBackgroundIfNeeded() {
@@ -1153,6 +1168,7 @@ async function exportConfig() {
     background: {
       id: state.backgroundId,
       custom: serializedBackground,
+      customFile: state.backgroundCustomFile,
     },
     selectedDateKey: state.selectedDateKey,
     calendarMonthKey: state.calendarMonthKey,
@@ -1204,7 +1220,10 @@ async function applyImportedConfig(config) {
   if (config.background && typeof config.background === "object") {
     const nextId = String(config.background.id || PRESET_BACKGROUNDS[0].id);
     const nextCustom = String(config.background.custom || "");
+    const nextCustomFile = String(config.background.customFile || "");
     state.backgroundId = nextId;
+    state.backgroundCustomFile = nextCustomFile;
+    saveStorage(STORAGE_KEYS.customBackgroundFile, state.backgroundCustomFile, { skipSnapshot: true });
 
     if (nextCustom.startsWith("data:")) {
       const blob = dataUrlToBlob(nextCustom);
@@ -1977,6 +1996,23 @@ async function loadCustomBackgroundBlob() {
 
 async function deleteCustomBackgroundBlob() {
   return idbDelete(ASSET_DB.customBackgroundKey);
+}
+
+function filePathToFileUrl(path) {
+  const value = String(path || "").trim();
+  if (!value) {
+    return "";
+  }
+  if (/^(file|data|blob):/i.test(value)) {
+    return value;
+  }
+
+  const normalized = value.replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return `file:///${encodeURI(normalized)}`;
+  }
+
+  return "";
 }
 
 function readFileAsDataUrl(file) {

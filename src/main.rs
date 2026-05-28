@@ -219,7 +219,7 @@ fn build_webview(
 ) -> Result<wry::WebView> {
     let proxy = event_loop_proxy.clone();
     WebViewBuilder::new_with_web_context(web_context)
-        .with_initialization_script("window.__IVORY_NATIVE_BRIDGE__ = 'navigation';")
+        .with_initialization_script(&build_initialization_script())
         .with_url(url.as_str())
         .with_navigation_handler(move |navigation_url| {
             match parse_native_navigation_event(&navigation_url) {
@@ -238,6 +238,70 @@ fn build_webview(
         })
         .build(window)
         .context("failed to build webview")
+}
+
+fn build_initialization_script() -> String {
+    let mut script = String::from("window.__IVORY_NATIVE_BRIDGE__ = 'navigation';\n");
+
+    #[cfg(target_os = "windows")]
+    if let Ok(Some(restore_script)) = build_fixed_config_restore_script() {
+        script.push_str(&restore_script);
+    }
+
+    script
+}
+
+#[cfg(target_os = "windows")]
+fn build_fixed_config_restore_script() -> Result<Option<String>> {
+    let Some(program_data) = env::var_os("PROGRAMDATA") else {
+        return Ok(None);
+    };
+    let config_path = PathBuf::from(program_data)
+        .join("IvoryWallpaper")
+        .join("config.json");
+    if !config_path.exists() {
+        return Ok(None);
+    }
+
+    let raw = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("failed to read fixed config file: {}", config_path.display()))?;
+    let config: serde_json::Value = serde_json::from_str(raw.trim_start_matches('\u{feff}'))
+        .with_context(|| format!("failed to parse fixed config file: {}", config_path.display()))?;
+    let restore_id = config
+        .get("restoreId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("fixed-config-v1");
+    let background_id = config
+        .get("backgroundId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("custom");
+    let custom_background_file = config
+        .get("customBackgroundFile")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+
+    if custom_background_file.trim().is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(format!(
+        r#"(function restoreIvoryFixedConfig() {{
+  try {{
+    var restoreId = {restore_id:?};
+    var markerKey = "ivory.fixedConfig.restoreId";
+    if (localStorage.getItem(markerKey) === restoreId) {{
+      return;
+    }}
+    localStorage.setItem("ivory.background", JSON.stringify({background_id:?}));
+    localStorage.setItem("ivory.background.customFile", JSON.stringify({custom_background_file:?}));
+    localStorage.setItem("ivory.background.custom", JSON.stringify(""));
+    localStorage.setItem(markerKey, restoreId);
+  }} catch (error) {{
+    console.warn("Ivory fixed config restore skipped:", error);
+  }}
+}})();
+"#,
+    )))
 }
 
 fn build_runtime(

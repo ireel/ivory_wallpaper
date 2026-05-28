@@ -97,6 +97,27 @@ ivory_wallpaper/
 
 ### 数据持久化
 
+- 固定配置目录
+  从本版本开始，Windows 上统一使用固定目录保存 WebView2 配置、`localStorage` 和 `IndexedDB`：
+
+  ```text
+  C:\ProgramData\IvoryWallpaper\WebView2
+  ```
+
+  这样无论是 `cargo run`、`target\debug`、`target\release`、开机自启，还是手动指定 HTML 路径，都会使用同一份前端配置数据。首次启动时，如果固定目录为空，运行时会尝试从旧目录迁移现有 WebView2 数据：
+
+  - `%LOCALAPPDATA%\IvoryWallpaper\WebView2`
+  - `target\release\ivory_wallpaper_runtime.exe.WebView2`
+  - `target\debug\ivory_wallpaper_runtime.exe.WebView2`
+
+  可选的一次性恢复配置文件位置：
+
+  ```text
+  C:\ProgramData\IvoryWallpaper\config.json
+  ```
+
+  该文件用于在新 profile 首次启动时写入必要的恢复项，例如 `backgroundId` 和 `customBackgroundFile`。同一个 `restoreId` 只会应用一次，避免之后每次启动覆盖用户在页面内的新修改。
+
 - `localStorage`
   用于保存背景选择、网格参数、每日记录、选中日期、快照等。
 

@@ -27,10 +27,23 @@ pub fn build_shared_web_context() -> Result<WebContext> {
 
 #[cfg(target_os = "windows")]
 fn resolve_shared_webview_data_dir() -> Result<PathBuf> {
-    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
-        return Ok(PathBuf::from(local_app_data)
+    if let Some(program_data) = env::var_os("PROGRAMDATA") {
+        let program_data_dir = PathBuf::from(program_data)
             .join(APP_SETTINGS_DIR_NAME)
-            .join(SHARED_WEBVIEW_DATA_DIR_NAME));
+            .join(SHARED_WEBVIEW_DATA_DIR_NAME);
+
+        if std::fs::create_dir_all(&program_data_dir).is_ok() {
+            return Ok(program_data_dir);
+        }
+    }
+
+    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+        let local_app_data_dir = PathBuf::from(local_app_data)
+            .join(APP_SETTINGS_DIR_NAME)
+            .join(SHARED_WEBVIEW_DATA_DIR_NAME);
+        std::fs::create_dir_all(&local_app_data_dir)
+            .with_context(|| format!("failed to create fallback WebView2 data directory: {}", local_app_data_dir.display()))?;
+        return Ok(local_app_data_dir);
     }
 
     let fallback_base = env::current_exe()
@@ -85,6 +98,14 @@ fn legacy_webview_data_candidates() -> Result<Vec<PathBuf>> {
     let is_debug = exe_dir.file_name().is_some_and(|name| name.eq_ignore_ascii_case("debug"));
     let is_release = exe_dir.file_name().is_some_and(|name| name.eq_ignore_ascii_case("release"));
     let mut candidates = Vec::new();
+
+    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+        candidates.push(
+            PathBuf::from(local_app_data)
+                .join(APP_SETTINGS_DIR_NAME)
+                .join(SHARED_WEBVIEW_DATA_DIR_NAME),
+        );
+    }
 
     if is_debug {
         if let Some(root) = &sibling_root {
