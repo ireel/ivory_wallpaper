@@ -1,3 +1,5 @@
+use std::{env, process::Command};
+
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use url::Url;
@@ -54,6 +56,7 @@ pub fn parse_native_navigation_event(navigation_url: &str) -> Result<Option<AppU
             id,
             enabled: enabled.context("missing enabled query parameter")?,
         },
+        "restartApp" => AppUserEvent::RestartApp { id },
         _ => bail!("unknown command: {command}"),
     };
 
@@ -64,6 +67,10 @@ pub fn handle_user_event(runtime: &mut AppRuntime, event: AppUserEvent) -> Resul
     #[cfg(target_os = "windows")]
     {
         match event {
+            AppUserEvent::RestartApp { id } => {
+                send_ipc_ok(runtime, id, serde_json::json!({ "restarting": true }))?;
+                restart_current_process()?;
+            }
             AppUserEvent::GetStartupStatus { id } => {
                 let result = get_launch_at_startup_status(&runtime.startup_html_path)?;
                 send_ipc_ok(runtime, id, result)?;
@@ -80,6 +87,10 @@ pub fn handle_user_event(runtime: &mut AppRuntime, event: AppUserEvent) -> Resul
     #[cfg(not(target_os = "windows"))]
     {
         match event {
+            AppUserEvent::RestartApp { id } => {
+                send_ipc_ok(runtime, id, serde_json::json!({ "restarting": true }))?;
+                restart_current_process()?;
+            }
             AppUserEvent::GetStartupStatus { id } | AppUserEvent::SetStartupEnabled { id, .. } => {
                 send_ipc_error(
                     runtime,
@@ -132,4 +143,21 @@ fn broadcast_ipc_response<T: Serialize>(runtime: &AppRuntime, response: &IpcResp
     }
 
     Ok(())
+}
+
+fn restart_current_process() -> Result<()> {
+    let exe = env::current_exe().context("failed to resolve current executable for restart")?;
+    let args: Vec<String> = env::args().skip(1).collect();
+    let mut command = Command::new(exe);
+    command.args(args);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command.spawn().context("failed to start replacement process")?;
+    std::process::exit(0);
 }

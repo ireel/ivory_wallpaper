@@ -120,6 +120,7 @@ const el = {
   weatherRuntimeHint: document.querySelector("#weatherRuntimeHint"),
   resetWeatherBtn: document.querySelector("#resetWeatherBtn"),
   openStartupModal: document.querySelector("#openStartupModal"),
+  restartAppBtn: document.querySelector("#restartAppBtn"),
   closeStartupModal: document.querySelector("#closeStartupModal"),
   startupModal: document.querySelector("#startupModal"),
   backgroundOptions: document.querySelector("#backgroundOptions"),
@@ -230,6 +231,7 @@ function bindEvents() {
     });
   });
   el.closeStartupModal?.addEventListener("click", () => closeModal(el.startupModal));
+  el.restartAppBtn?.addEventListener("click", () => restartApplication());
   el.selectedDateTrigger.addEventListener("click", () => openModal(el.calendarModal));
 
   [el.backgroundModal, el.calendarModal, el.startupModal].forEach((modal) => {
@@ -507,6 +509,24 @@ function openModal(modal) {
 
 function closeModal(modal) {
   modal.classList.add("is-hidden");
+}
+
+async function restartApplication() {
+  if (!NATIVE_BRIDGE.available) {
+    alert("当前预览环境不支持应用内重启，请手动重启程序。");
+    return;
+  }
+
+  el.restartAppBtn.disabled = true;
+  el.restartAppBtn.textContent = "正在重启...";
+  try {
+    await NATIVE_BRIDGE.invoke("restartApp");
+  } catch (error) {
+    console.error("Restart application failed:", error);
+    el.restartAppBtn.disabled = false;
+    el.restartAppBtn.textContent = "重启应用";
+    alert(error.message || "重启失败，请手动重启程序。");
+  }
 }
 
 function applyWindowRoleUI() {

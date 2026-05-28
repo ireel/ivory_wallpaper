@@ -46,6 +46,7 @@ struct AppOptions {
 enum AppUserEvent {
     GetStartupStatus { id: String },
     SetStartupEnabled { id: String, enabled: bool },
+    RestartApp { id: String },
 }
 
 #[derive(Debug, Serialize)]
