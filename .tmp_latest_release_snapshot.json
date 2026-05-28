@@ -1,0 +1,375 @@
+{
+  "version": 3,
+  "savedAt": "2026-05-27T03:29:32.224Z",
+  "backgroundId": "custom",
+  "backgroundCustom": "",
+  "weather": {
+    "effect": "snow",
+    "enabled": true,
+    "intensity": 0.65,
+    "wind": 0.3,
+    "opacity": 0.8,
+    "coverage": 0.7
+  },
+  "grid": {
+    "baseWidth": 2560,
+    "baseHeight": 1600,
+    "cellW": 77,
+    "cellH": 98,
+    "offsetX": 72,
+    "offsetY": -7,
+    "opacity": 0.5
+  },
+  "selectedDateKey": "2026-05-27",
+  "calendarMonthKey": "2026-05-01",
+  "dailyRecords": {
+    "2026-03-28": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "6e01aeea-4131-448a-865a-89a250e3c19d",
+          "text": "cve检索skill",
+          "done": false,
+          "deadline": "2026-03-29T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-03-28T07:34:14.646Z"
+    },
+    "2026-03-29": {
+      "memo": "",
+      "todos": [],
+      "updatedAt": "2026-03-30T05:45:39.369Z"
+    },
+    "2026-03-30": {
+      "memo": "帮助fox注册linuxdo",
+      "todos": [
+        {
+          "id": "ff91e405-c2a0-4ec5-9cdb-13bdb2ada5f6",
+          "text": "工具docker",
+          "done": true,
+          "deadline": "2026-03-31T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-03-31T14:43:16.182Z"
+    },
+    "2026-04-01": {
+      "memo": "帮助fox注册linuxdo(暂缓)",
+      "todos": [
+        {
+          "id": "ca6b689c-7c36-4c8b-9783-d9b044320479",
+          "text": "初版agent",
+          "done": false,
+          "deadline": "2026-04-06T15:59:00.000Z"
+        },
+        {
+          "id": "436f9770-fe56-4ce6-893b-2c7f19c923a4",
+          "text": "ctfplus出题",
+          "done": false,
+          "deadline": "2026-04-08T04:00:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-01T12:48:00.221Z"
+    },
+    "2026-04-02": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "0232472b-1216-48c8-828b-e50bcadea835",
+          "text": "初版agent",
+          "done": false,
+          "deadline": "2026-04-06T15:59:00.000Z"
+        },
+        {
+          "id": "23729464-259d-4cc5-95c2-258b48569bbd",
+          "text": "ctfplus出题",
+          "done": true,
+          "deadline": "2026-04-08T04:00:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-02T12:15:04.558Z"
+    },
+    "2026-04-03": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "6342d896-ce57-4382-bca4-bfe7f7c68209",
+          "text": "初版agent",
+          "done": false,
+          "deadline": "2026-04-06T15:59:00.000Z"
+        },
+        {
+          "id": "efe34f78-898a-468f-94ff-3f2e6ed45c9d",
+          "text": "电网题目测试修改",
+          "done": false,
+          "deadline": "2026-04-08T04:00:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-03T11:07:57.386Z"
+    },
+    "2026-04-04": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "37095f73-37f1-4e07-8186-e1d3bee5f671",
+          "text": "初版agent",
+          "done": false,
+          "deadline": "2026-04-06T15:59:00.000Z"
+        },
+        {
+          "id": "e67e132d-93b2-4e71-b43a-781828fff409",
+          "text": "电网题目测试修改",
+          "done": true,
+          "deadline": "2026-04-08T04:00:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-05T10:42:36.636Z"
+    },
+    "2026-04-06": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "3a5cdce1-8493-41cd-8d2e-dd6230398295",
+          "text": "初版agent",
+          "done": false,
+          "deadline": "2026-04-06T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-06T07:25:43.276Z"
+    },
+    "2026-04-07": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "b96a24f6-e044-49ed-8a68-4b5990a26304",
+          "text": "初版agent",
+          "done": true,
+          "deadline": "2026-04-06T15:59:00.000Z"
+        },
+        {
+          "id": "b23b6a5f-1812-4efa-86dd-1f0e5b180c2f",
+          "text": "概率论作业",
+          "done": true,
+          "deadline": "2026-04-08T08:59:00.000Z"
+        },
+        {
+          "id": "41aa35ed-db32-4e02-9d2e-86384d60cf63",
+          "text": "密码作业",
+          "done": true,
+          "deadline": "2026-04-08T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-08T09:42:54.541Z"
+    },
+    "2026-04-09": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "5729b5aa-5f70-4756-b2ce-edbea398ab42",
+          "text": "英语视频",
+          "done": true,
+          "deadline": "2026-04-10T06:00:00.000Z"
+        },
+        {
+          "id": "befc5838-cd99-4b1b-9f5a-5627725bf46d",
+          "text": "docker环境整理",
+          "done": false,
+          "deadline": "2026-04-10T15:59:00.000Z"
+        },
+        {
+          "id": "01033b0a-09c1-4e3e-a073-32bc7e3b85e1",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        },
+        {
+          "id": "45c8d02e-fb71-46d1-8380-ce53a54c7bf5",
+          "text": "数电作业",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-10T04:45:16.792Z"
+    },
+    "2026-04-11": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "c0b7e385-4cc2-4bbe-b543-0b14cca59345",
+          "text": "docker环境整理",
+          "done": false,
+          "deadline": "2026-04-10T15:59:00.000Z"
+        },
+        {
+          "id": "4bc1c3d6-94d2-4efe-b962-10e6fc4b5432",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        },
+        {
+          "id": "bf275f58-5d2b-40d0-bc6d-7b03941c24c9",
+          "text": "数电作业",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-11T12:11:08.579Z"
+    },
+    "2026-04-12": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "ea7895d0-499c-4508-b722-dae245f7439d",
+          "text": "docker环境整理",
+          "done": true,
+          "deadline": "2026-04-10T15:59:00.000Z"
+        },
+        {
+          "id": "07337878-be52-457b-ae94-787c9b01ad32",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        },
+        {
+          "id": "31a23373-ff8b-43c2-baaf-e17303233218",
+          "text": "数电作业",
+          "done": true,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-12T14:31:01.876Z"
+    },
+    "2026-04-13": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "5fc9f9be-614b-4168-8fc7-848bc8c5a290",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-13T05:00:42.891Z"
+    },
+    "2026-04-14": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "b1eb1860-5020-452d-a17b-5d19de12e465",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-14T02:52:00.868Z"
+    },
+    "2026-04-15": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "d89457bc-a150-4bf7-ae6f-3b8022d6d34c",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-15T02:57:08.937Z"
+    },
+    "2026-04-16": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "9d6fe260-ac66-409a-a342-1daabb286463",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-16T04:09:51.089Z"
+    },
+    "2026-04-17": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "9bac35ea-903a-4e22-812d-928dc3cc3a86",
+          "text": "配网实验报告",
+          "done": false,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-17T00:27:10.980Z"
+    },
+    "2026-04-18": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "9e5f87b1-c75f-4c85-b14c-4942cc529c24",
+          "text": "配网实验报告",
+          "done": true,
+          "deadline": "2026-04-12T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-18T13:34:29.818Z"
+    },
+    "2026-04-23": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "bef1c139-3636-4133-8a78-0662be6384c8",
+          "text": "java RMI",
+          "done": false,
+          "deadline": "2026-04-25T15:59:00.000Z"
+        },
+        {
+          "id": "31e84694-2f13-406b-98bc-abdba494873b",
+          "text": "java cc链复习",
+          "done": false,
+          "deadline": "2026-04-26T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-23T06:47:31.311Z"
+    },
+    "2026-04-24": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "10a0fcd7-228e-4d63-a723-21555a1e82d9",
+          "text": "java RMI",
+          "done": false,
+          "deadline": "2026-04-25T15:59:00.000Z"
+        },
+        {
+          "id": "2dbacf88-f245-4973-a87a-95386b5f1c47",
+          "text": "java cc链复习",
+          "done": false,
+          "deadline": "2026-04-26T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-24T05:27:28.939Z"
+    },
+    "2026-04-25": {
+      "memo": "",
+      "todos": [
+        {
+          "id": "fcf1474f-33f2-405f-b89e-e17b40b6665a",
+          "text": "java RMI",
+          "done": false,
+          "deadline": "2026-04-25T15:59:00.000Z"
+        },
+        {
+          "id": "4e22f767-736c-493d-9523-13cd9988cbe6",
+          "text": "java cc链复习",
+          "done": false,
+          "deadline": "2026-04-26T15:59:00.000Z"
+        }
+      ],
+      "updatedAt": "2026-04-25T07:38:56.950Z"
+    },
+    "2026-04-26": {
+      "memo": "",
+      "todos": [],
+      "updatedAt": "2026-04-26T04:44:54.750Z"
+    }
+  },
+  "memo": "",
+  "todos": []
+}

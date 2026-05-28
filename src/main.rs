@@ -1,8 +1,11 @@
-#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
 
 use std::env;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -90,7 +93,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let options = parse_args()?;
-    let html_url = to_file_url(&options.html_path)?;
+    let html_url = to_versioned_file_url(&options.html_path)?;
 
     #[cfg(target_os = "windows")]
     hide_console_window_for_workerw(options.mode);
@@ -102,7 +105,13 @@ fn run() -> Result<()> {
 
     let event_loop = EventLoopBuilder::<AppUserEvent>::with_user_event().build();
     let event_loop_proxy = event_loop.create_proxy();
-    let mut runtime = build_runtime(&event_loop, &event_loop_proxy, options.mode, &options.html_path, &html_url)?;
+    let mut runtime = build_runtime(
+        &event_loop,
+        &event_loop_proxy,
+        options.mode,
+        &options.html_path,
+        &html_url,
+    )?;
 
     event_loop.run(move |event, _, control_flow| {
         let _keep_windows_alive = &runtime.windows;
@@ -119,7 +128,8 @@ fn run() -> Result<()> {
                     eprintln!("native event failed: {error:#}");
                 }
             }
-            Event::MainEventsCleared => {
+            Event::MainEventsCleared =>
+            {
                 #[cfg(target_os = "windows")]
                 if let Err(error) = poll_workerw_hotkey(&mut runtime) {
                     eprintln!("workerw interaction toggle failed: {error:#}");
@@ -189,7 +199,10 @@ fn print_help() {
     );
 }
 
-fn build_window(event_loop: &EventLoop<AppUserEvent>, mode: RunMode) -> Result<tao::window::Window> {
+fn build_window(
+    event_loop: &EventLoop<AppUserEvent>,
+    mode: RunMode,
+) -> Result<tao::window::Window> {
     let mut builder = WindowBuilder::new().with_title("Ivory Wallpaper Runtime");
 
     match mode {
@@ -263,38 +276,61 @@ fn build_fixed_config_restore_script() -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let raw = std::fs::read_to_string(&config_path)
-        .with_context(|| format!("failed to read fixed config file: {}", config_path.display()))?;
+    let raw = std::fs::read_to_string(&config_path).with_context(|| {
+        format!(
+            "failed to read fixed config file: {}",
+            config_path.display()
+        )
+    })?;
     let config: serde_json::Value = serde_json::from_str(raw.trim_start_matches('\u{feff}'))
-        .with_context(|| format!("failed to parse fixed config file: {}", config_path.display()))?;
-    let restore_id = config
-        .get("restoreId")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("fixed-config-v1");
-    let background_id = config
-        .get("backgroundId")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("custom");
-    let custom_background_file = config
-        .get("customBackgroundFile")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-
-    if custom_background_file.trim().is_empty() {
-        return Ok(None);
-    }
-
+        .with_context(|| {
+            format!(
+                "failed to parse fixed config file: {}",
+                config_path.display()
+            )
+        })?;
+    let config_json = serde_json::to_string(&config)
+        .context("failed to serialize fixed config for initialization")?;
     Ok(Some(format!(
         r#"(function restoreIvoryFixedConfig() {{
   try {{
-    var restoreId = {restore_id:?};
+    var config = {config_json};
+    var restoreId = String(config.restoreId || "fixed-config-v1");
     var markerKey = "ivory.fixedConfig.restoreId";
     if (localStorage.getItem(markerKey) === restoreId) {{
       return;
     }}
-    localStorage.setItem("ivory.background", JSON.stringify({background_id:?}));
-    localStorage.setItem("ivory.background.customFile", JSON.stringify({custom_background_file:?}));
-    localStorage.setItem("ivory.background.custom", JSON.stringify(""));
+
+    function setJson(key, value) {{
+      if (value !== undefined) {{
+        localStorage.setItem(key, JSON.stringify(value));
+      }}
+    }}
+
+    var snapshot = config.snapshot && typeof config.snapshot === "object" ? config.snapshot : null;
+    if (snapshot && config.customBackgroundFile && !snapshot.backgroundCustomFile) {{
+      snapshot.backgroundCustomFile = String(config.customBackgroundFile);
+    }}
+
+    setJson("ivory.background", config.backgroundId || (snapshot && snapshot.backgroundId) || "custom");
+    setJson("ivory.background.customFile", config.customBackgroundFile || (snapshot && snapshot.backgroundCustomFile) || "");
+    setJson("ivory.background.custom", config.backgroundCustom || (snapshot && snapshot.backgroundCustom) || "");
+
+    if (snapshot) {{
+      setJson("ivory.snapshot", snapshot);
+      setJson("ivory.dailyRecords", snapshot.dailyRecords || {{}});
+      setJson("ivory.selectedDateKey", snapshot.selectedDateKey);
+      setJson("ivory.calendarMonthKey", snapshot.calendarMonthKey);
+      setJson("ivory.memo", snapshot.memo || "");
+      setJson("ivory.todos", snapshot.todos || []);
+      setJson("ivory.weather", snapshot.weather);
+      setJson("ivory.grid", snapshot.grid);
+    }}
+
+    if (config.clearLastLaunchDate) {{
+      localStorage.removeItem("ivory.lastLaunchDate");
+    }}
+
     localStorage.setItem(markerKey, restoreId);
   }} catch (error) {{
     console.warn("Ivory fixed config restore skipped:", error);
@@ -319,15 +355,14 @@ fn build_runtime(
             let webview = build_webview(&mut web_context, &window, event_loop_proxy, html_url)?;
 
             if mode == RunMode::Fullscreen {
-                window.set_fullscreen(Some(tao::window::Fullscreen::Borderless(window.current_monitor())));
+                window.set_fullscreen(Some(tao::window::Fullscreen::Borderless(
+                    window.current_monitor(),
+                )));
             }
 
             Ok(AppRuntime {
                 _web_context: web_context,
-                windows: vec![ManagedWindow {
-                    window,
-                    webview,
-                }],
+                windows: vec![ManagedWindow { window, webview }],
                 #[cfg(target_os = "windows")]
                 workerw: None,
                 #[cfg(target_os = "windows")]
@@ -391,11 +426,56 @@ fn resolve_html_path(input_path: Option<PathBuf>) -> Result<PathBuf> {
         }
     }
 
-    bail!("cannot locate web/index.html. pass --html <path> or place web/index.html near executable");
+    bail!(
+        "cannot locate web/index.html. pass --html <path> or place web/index.html near executable"
+    );
 }
 
 fn to_file_url(path: &Path) -> Result<Url> {
-    Url::from_file_path(path).map_err(|_| anyhow::anyhow!("invalid file path for URL: {}", path.display()))
+    Url::from_file_path(path)
+        .map_err(|_| anyhow::anyhow!("invalid file path for URL: {}", path.display()))
 }
 
+fn to_versioned_file_url(path: &Path) -> Result<Url> {
+    let mut url = to_file_url(path)?;
+    let version = frontend_version(path)?;
+    url.query_pairs_mut()
+        .append_pair("ivoryFrontendVersion", &version);
+    Ok(url)
+}
 
+fn frontend_version(html_path: &Path) -> Result<String> {
+    let root = html_path.parent().unwrap_or_else(|| Path::new("."));
+    let latest_modified = latest_modified_time(root)?;
+    let duration = latest_modified
+        .duration_since(UNIX_EPOCH)
+        .context("frontend file modified time is before UNIX epoch")?;
+    Ok(format!(
+        "{}-{}",
+        duration.as_secs(),
+        duration.subsec_nanos()
+    ))
+}
+
+fn latest_modified_time(path: &Path) -> Result<std::time::SystemTime> {
+    let metadata = std::fs::metadata(path)
+        .with_context(|| format!("failed to read frontend metadata: {}", path.display()))?;
+    let mut latest = metadata
+        .modified()
+        .with_context(|| format!("failed to read frontend modified time: {}", path.display()))?;
+
+    if metadata.is_dir() {
+        for entry in std::fs::read_dir(path)
+            .with_context(|| format!("failed to read frontend directory: {}", path.display()))?
+        {
+            let entry =
+                entry.with_context(|| format!("failed to read entry under {}", path.display()))?;
+            let child_latest = latest_modified_time(&entry.path())?;
+            if child_latest > latest {
+                latest = child_latest;
+            }
+        }
+    }
+
+    Ok(latest)
+}
