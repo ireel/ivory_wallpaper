@@ -455,9 +455,6 @@ body[data-weather-effect]:not([data-weather-effect="none"]) .weather-layer {
   height: min(var(--panel-height), 62vh);
   padding: 12px;
   background: rgba(5, 14, 26, 0.72);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
 }
 
 .widget-header {
@@ -466,7 +463,6 @@ body[data-weather-effect]:not([data-weather-effect="none"]) .weather-layer {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
-  flex: 0 0 auto;
 }
 
 .productivity-title-group {
@@ -518,8 +514,7 @@ body[data-weather-effect]:not([data-weather-effect="none"]) .weather-layer {
 }
 
 .productivity-body {
-  flex: 1 1 auto;
-  min-height: 0;
+  height: calc(100% - 56px);
   display: grid;
   grid-template-columns: 1.65fr 1fr;
   gap: 12px;
@@ -531,7 +526,6 @@ body[data-weather-effect]:not([data-weather-effect="none"]) .weather-layer {
   border: 1px solid var(--line-soft);
   background: rgba(6, 14, 26, 0.72);
   min-height: 0;
-  overflow: hidden;
 }
 
 .memo-input,
@@ -694,8 +688,6 @@ body[data-weather-effect]:not([data-weather-effect="none"]) .weather-layer {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex: 1 1 auto;
-  min-height: 0;
   overflow: auto;
 }
 

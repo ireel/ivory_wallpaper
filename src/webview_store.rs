@@ -14,13 +14,8 @@ pub fn build_shared_web_context() -> Result<WebContext> {
     {
         let data_dir = resolve_shared_webview_data_dir()?;
         migrate_webview_data_if_needed(&data_dir)?;
-        std::fs::create_dir_all(&data_dir).with_context(|| {
-            format!(
-                "failed to create shared webview data directory: {}",
-                data_dir.display()
-            )
-        })?;
-        purge_frontend_cache(&data_dir)?;
+        std::fs::create_dir_all(&data_dir)
+            .with_context(|| format!("failed to create shared webview data directory: {}", data_dir.display()))?;
         return Ok(WebContext::new(Some(data_dir)));
     }
 
@@ -28,37 +23,6 @@ pub fn build_shared_web_context() -> Result<WebContext> {
     {
         Ok(WebContext::default())
     }
-}
-
-#[cfg(target_os = "windows")]
-fn purge_frontend_cache(data_dir: &Path) -> Result<()> {
-    let cache_dirs = [
-        data_dir.join("Default").join("Cache"),
-        data_dir.join("Default").join("Code Cache"),
-        data_dir.join("Default").join("GPUCache"),
-        data_dir
-            .join("Default")
-            .join("Service Worker")
-            .join("CacheStorage"),
-        data_dir.join("Default").join("DawnCache"),
-        data_dir.join("ShaderCache"),
-        data_dir.join("GrShaderCache"),
-    ];
-
-    for cache_dir in cache_dirs {
-        if !cache_dir.exists() {
-            continue;
-        }
-
-        if let Err(error) = std::fs::remove_dir_all(&cache_dir) {
-            eprintln!(
-                "skipped stale WebView2 cache cleanup for {}: {error}",
-                cache_dir.display()
-            );
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -77,12 +41,8 @@ fn resolve_shared_webview_data_dir() -> Result<PathBuf> {
         let local_app_data_dir = PathBuf::from(local_app_data)
             .join(APP_SETTINGS_DIR_NAME)
             .join(SHARED_WEBVIEW_DATA_DIR_NAME);
-        std::fs::create_dir_all(&local_app_data_dir).with_context(|| {
-            format!(
-                "failed to create fallback WebView2 data directory: {}",
-                local_app_data_dir.display()
-            )
-        })?;
+        std::fs::create_dir_all(&local_app_data_dir)
+            .with_context(|| format!("failed to create fallback WebView2 data directory: {}", local_app_data_dir.display()))?;
         return Ok(local_app_data_dir);
     }
 
@@ -122,8 +82,7 @@ fn migrate_webview_data_if_needed(target_dir: &Path) -> Result<()> {
 
 #[cfg(target_os = "windows")]
 fn legacy_webview_data_candidates() -> Result<Vec<PathBuf>> {
-    let exe_path = env::current_exe()
-        .context("failed to resolve current executable path for WebView2 migration")?;
+    let exe_path = env::current_exe().context("failed to resolve current executable path for WebView2 migration")?;
     let exe_dir = exe_path
         .parent()
         .map(Path::to_path_buf)
@@ -136,12 +95,8 @@ fn legacy_webview_data_candidates() -> Result<Vec<PathBuf>> {
 
     let adjacent = exe_dir.join(format!("{exe_name}.WebView2"));
     let sibling_root = exe_dir.parent().map(Path::to_path_buf);
-    let is_debug = exe_dir
-        .file_name()
-        .is_some_and(|name| name.eq_ignore_ascii_case("debug"));
-    let is_release = exe_dir
-        .file_name()
-        .is_some_and(|name| name.eq_ignore_ascii_case("release"));
+    let is_debug = exe_dir.file_name().is_some_and(|name| name.eq_ignore_ascii_case("debug"));
+    let is_release = exe_dir.file_name().is_some_and(|name| name.eq_ignore_ascii_case("release"));
     let mut candidates = Vec::new();
 
     if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
@@ -168,10 +123,7 @@ fn legacy_webview_data_candidates() -> Result<Vec<PathBuf>> {
 
     let mut unique = Vec::new();
     for candidate in candidates {
-        if !unique
-            .iter()
-            .any(|existing: &PathBuf| existing == &candidate)
-        {
+        if !unique.iter().any(|existing: &PathBuf| existing == &candidate) {
             unique.push(candidate);
         }
     }
@@ -198,8 +150,7 @@ fn copy_directory_recursively(source_dir: &Path, target_dir: &Path) -> Result<()
     for entry in std::fs::read_dir(source_dir)
         .with_context(|| format!("failed to read directory: {}", source_dir.display()))?
     {
-        let entry = entry
-            .with_context(|| format!("failed to read entry under {}", source_dir.display()))?;
+        let entry = entry.with_context(|| format!("failed to read entry under {}", source_dir.display()))?;
         let source_path = entry.path();
         let target_path = target_dir.join(entry.file_name());
         let file_type = entry
