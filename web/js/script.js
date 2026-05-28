@@ -45,6 +45,7 @@ const DEFAULT_WEATHER = {
   intensity: 0.56,
   wind: 0.35,
   opacity: 0.72,
+  coverage: 0.58,
 };
 
 const PRESET_BACKGROUNDS = [
@@ -95,6 +96,10 @@ const state = {
 const el = {
   backgroundLayer: document.querySelector("#backgroundLayer"),
   weatherLayer: document.querySelector("#weatherLayer"),
+  weatherCanvas: document.querySelector("#weatherCanvas"),
+  weatherGlow: document.querySelector("#weatherGlow"),
+  weatherClouds: document.querySelector("#weatherClouds"),
+  weatherFog: document.querySelector("#weatherFog"),
   openBackgroundModal: document.querySelector("#openBackgroundModal"),
   closeBackgroundModal: document.querySelector("#closeBackgroundModal"),
   backgroundModal: document.querySelector("#backgroundModal"),
@@ -110,6 +115,8 @@ const el = {
   weatherWindValue: document.querySelector("#weatherWindValue"),
   weatherOpacity: document.querySelector("#weatherOpacity"),
   weatherOpacityValue: document.querySelector("#weatherOpacityValue"),
+  weatherCoverage: document.querySelector("#weatherCoverage"),
+  weatherCoverageValue: document.querySelector("#weatherCoverageValue"),
   weatherRuntimeHint: document.querySelector("#weatherRuntimeHint"),
   resetWeatherBtn: document.querySelector("#resetWeatherBtn"),
   openStartupModal: document.querySelector("#openStartupModal"),
@@ -167,6 +174,10 @@ const STARTUP_SETTINGS = window.IvoryStartupSettings.create({
   viewContext: VIEW_CONTEXT,
   nativeBridge: NATIVE_BRIDGE,
 });
+const WEATHER_RENDERER = window.IvoryWeatherRenderer.create({
+  elements: el,
+  viewContext: VIEW_CONTEXT,
+});
 
 init().catch((error) => {
   console.error("Initialization failed:", error);
@@ -200,6 +211,7 @@ async function init() {
   bindEvents();
   await STARTUP_SETTINGS.refresh();
   window.addEventListener("beforeunload", cleanupCustomBackgroundUrl);
+  window.addEventListener("beforeunload", () => WEATHER_RENDERER.destroy());
   window.addEventListener("storage", handleStorageSync);
 }
 
@@ -260,7 +272,7 @@ function bindEvents() {
     setWeatherMode(button.dataset.weatherMode || "off");
   });
 
-  [el.weatherIntensity, el.weatherWind, el.weatherOpacity].forEach((input) => {
+  [el.weatherIntensity, el.weatherWind, el.weatherOpacity, el.weatherCoverage].forEach((input) => {
     input?.addEventListener("input", syncWeatherFromInputs);
   });
 
@@ -707,10 +719,10 @@ function persistWeather(options = {}) {
 }
 
 function setWeatherMode(mode) {
-  if (mode === "rain") {
+  if (["sunny", "rain", "snow", "cloudy", "foggy", "hail"].includes(mode)) {
     state.weather = normalizeWeather({
       ...state.weather,
-      effect: "rain",
+      effect: mode,
       enabled: true,
     });
   } else {
@@ -731,6 +743,7 @@ function syncWeatherFromInputs() {
     intensity: el.weatherIntensity?.value,
     wind: el.weatherWind?.value,
     opacity: el.weatherOpacity?.value,
+    coverage: el.weatherCoverage?.value,
   });
 
   persistWeather();
@@ -739,13 +752,14 @@ function syncWeatherFromInputs() {
 }
 
 function syncWeatherInputs() {
-  if (!el.weatherIntensity || !el.weatherWind || !el.weatherOpacity) {
+  if (!el.weatherIntensity || !el.weatherWind || !el.weatherOpacity || !el.weatherCoverage) {
     return;
   }
 
   el.weatherIntensity.value = String(state.weather.intensity);
   el.weatherWind.value = String(state.weather.wind);
   el.weatherOpacity.value = String(state.weather.opacity);
+  el.weatherCoverage.value = String(state.weather.coverage);
 
   if (el.weatherIntensityValue) {
     el.weatherIntensityValue.value = state.weather.intensity.toFixed(2);
@@ -762,17 +776,31 @@ function syncWeatherInputs() {
     el.weatherOpacityValue.textContent = state.weather.opacity.toFixed(2);
   }
 
+  if (el.weatherCoverageValue) {
+    el.weatherCoverageValue.value = state.weather.coverage.toFixed(2);
+    el.weatherCoverageValue.textContent = state.weather.coverage.toFixed(2);
+  }
+
   const activeMode = state.weather.enabled ? state.weather.effect : "off";
   el.weatherModeGroup?.querySelectorAll("[data-weather-mode]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.weatherMode === activeMode);
   });
 
   if (el.weatherRuntimeHint) {
-    const modeLabel = activeMode === "rain" ? "下雨" : "关闭";
+    const modeLabels = {
+      off: "关闭",
+      sunny: "晴天",
+      rain: "下雨",
+      snow: "下雪",
+      cloudy: "多云",
+      foggy: "大雾",
+      hail: "冰雹",
+    };
+    const modeLabel = modeLabels[activeMode] || "关闭";
     const windLabel =
       state.weather.wind > 0.08 ? "向右偏移" : state.weather.wind < -0.08 ? "向左偏移" : "基本垂直";
     el.weatherRuntimeHint.textContent =
-      `当前效果: ${modeLabel} | 强度 ${state.weather.intensity.toFixed(2)} | ${windLabel} | 透明度 ${state.weather.opacity.toFixed(2)}`;
+      `当前效果: ${modeLabel} | 强度 ${state.weather.intensity.toFixed(2)} | ${windLabel} | 透明度 ${state.weather.opacity.toFixed(2)} | 覆盖 ${state.weather.coverage.toFixed(2)}`;
   }
 }
 
@@ -1706,7 +1734,20 @@ function migrateGrid(grid) {
 
 function normalizeWeather(weather) {
   const effect = typeof weather?.effect === "string" ? weather.effect : DEFAULT_WEATHER.effect;
-  const normalizedEffect = effect === "rain" ? "rain" : "none";
+  const effectMap = {
+    sunny: "sunny",
+    rain: "rain",
+    rainy: "rain",
+    snow: "snow",
+    snowy: "snow",
+    cloudy: "cloudy",
+    foggy: "foggy",
+    hail: "hail",
+    icy: "hail",
+    off: "none",
+    none: "none",
+  };
+  const normalizedEffect = effectMap[effect] || "none";
   const enabled = weather?.enabled !== false && normalizedEffect !== "none";
   return {
     effect: normalizedEffect,
@@ -1714,11 +1755,11 @@ function normalizeWeather(weather) {
     intensity: clampFloat(weather?.intensity, 0.2, 1, 2),
     wind: clampFloat(weather?.wind, -1, 1, 2),
     opacity: clampFloat(weather?.opacity, 0.25, 1, 2),
+    coverage: clampFloat(weather?.coverage, 0.2, 1, 2),
   };
 }
 
 function applyWeather() {
-  const root = document.documentElement;
   const effect = state.weather.enabled ? state.weather.effect : "none";
 
   document.body.dataset.weatherEffect = effect;
@@ -1728,7 +1769,6 @@ function applyWeather() {
   }
 
   el.weatherLayer.hidden = effect === "none";
-  root.style.setProperty("--weather-layer-opacity", effect === "none" ? "0" : "1");
   syncWeatherMetrics();
 }
 
@@ -1741,32 +1781,76 @@ function syncWeatherMetrics() {
   const intensity = state.weather?.intensity ?? DEFAULT_WEATHER.intensity;
   const wind = state.weather?.wind ?? DEFAULT_WEATHER.wind;
   const opacityScale = state.weather?.opacity ?? DEFAULT_WEATHER.opacity;
-  const fallFarY = clampFloat(window.innerHeight * (0.22 + intensity * 0.12), 180, 320, 2);
-  const fallNearY = clampFloat(window.innerHeight * (0.3 + intensity * 0.18), 240, 420, 2);
-  const windOffset = wind * (24 + intensity * 38);
-  const driftFarX = clampFloat(window.innerWidth * (-0.03 - intensity * 0.018) + windOffset, -140, 96, 2);
-  const driftNearX = clampFloat(window.innerWidth * (-0.04 - intensity * 0.025) + windOffset * 1.28, -180, 128, 2);
-  const farDuration = clampFloat(1.95 - intensity * 0.62, 1.08, 1.95, 2);
-  const nearDuration = clampFloat(1.42 - intensity * 0.42, 0.78, 1.42, 2);
-  const farOpacity = clampFloat((0.1 + intensity * 0.12) * opacityScale, 0.08, 0.28, 2);
-  const nearOpacity = clampFloat((0.16 + intensity * 0.2) * opacityScale, 0.12, 0.42, 2);
-  const layerOpacity = clampFloat((0.5 + intensity * 0.4) * opacityScale, 0.22, 0.96, 2);
-  const farSizeX = clampFloat(252 - intensity * 64, 176, 252, 2);
-  const farSizeY = clampFloat(236 - intensity * 48, 176, 236, 2);
-  const nearSizeX = clampFloat(294 - intensity * 72, 196, 294, 2);
-  const nearSizeY = clampFloat(256 - intensity * 56, 188, 256, 2);
+  const coverage = state.weather?.coverage ?? DEFAULT_WEATHER.coverage;
+  const effect = state.weather.enabled ? state.weather.effect : "none";
 
-  root.style.setProperty("--weather-layer-opacity", `${layerOpacity}`);
-  root.style.setProperty("--rain-far-opacity", `${farOpacity}`);
-  root.style.setProperty("--rain-near-opacity", `${nearOpacity}`);
-  root.style.setProperty("--rain-far-duration", `${farDuration}s`);
-  root.style.setProperty("--rain-near-duration", `${nearDuration}s`);
-  root.style.setProperty("--rain-fall-far-x", `${driftFarX}px`);
-  root.style.setProperty("--rain-fall-far-y", `${fallFarY}px`);
-  root.style.setProperty("--rain-fall-near-x", `${driftNearX}px`);
-  root.style.setProperty("--rain-fall-near-y", `${fallNearY}px`);
-  root.style.setProperty("--rain-far-size", `${farSizeX}px ${farSizeY}px`);
-  root.style.setProperty("--rain-near-size", `${nearSizeX}px ${nearSizeY}px`);
+  let layerOpacity = 0;
+  let cloudOpacity = 0;
+  let cloudSpeed = 1;
+  let fogOpacity = 0;
+  let fogDensity = 0.5;
+  let sunOpacity = 0;
+  let sunX = "78%";
+  let sunY = "18%";
+  let sunSize = `${clampFloat(28 + intensity * 12, 24, 42, 2)}vmax`;
+
+  if (effect === "sunny") {
+    layerOpacity = clampFloat(0.22 + opacityScale * 0.5, 0.22, 0.72, 2);
+    sunOpacity = clampFloat(0.38 + intensity * 0.42, 0.38, 0.88, 2) * opacityScale;
+    cloudOpacity = clampFloat(0.05 + coverage * 0.12, 0.05, 0.18, 2);
+    cloudSpeed = clampFloat(0.42 + Math.abs(wind) * 0.55, 0.42, 1.1, 2);
+    sunX = `${clampFloat(76 + wind * 6, 68, 84, 2)}%`;
+  } else if (effect === "rain") {
+    layerOpacity = clampFloat(0.45 + opacityScale * 0.4, 0.3, 0.9, 2);
+    cloudOpacity = clampFloat(0.32 + coverage * 0.38 + intensity * 0.1, 0.3, 0.84, 2);
+    cloudSpeed = clampFloat(0.85 + intensity * 0.8 + Math.abs(wind) * 0.45, 0.85, 1.95, 2);
+    fogOpacity = clampFloat(0.04 + intensity * 0.08, 0.04, 0.18, 2);
+    fogDensity = clampFloat(0.3 + coverage * 0.2, 0.25, 0.6, 2);
+  } else if (effect === "snow") {
+    layerOpacity = clampFloat(0.42 + opacityScale * 0.34, 0.3, 0.82, 2);
+    cloudOpacity = clampFloat(0.18 + coverage * 0.3, 0.18, 0.58, 2);
+    cloudSpeed = clampFloat(0.42 + Math.abs(wind) * 0.35, 0.42, 0.95, 2);
+    fogOpacity = clampFloat(0.03 + coverage * 0.08, 0.03, 0.16, 2);
+    fogDensity = clampFloat(0.28 + coverage * 0.16, 0.25, 0.5, 2);
+  } else if (effect === "cloudy") {
+    layerOpacity = clampFloat(0.26 + opacityScale * 0.36, 0.22, 0.76, 2);
+    cloudOpacity = clampFloat(0.34 + coverage * 0.44, 0.34, 0.9, 2);
+    cloudSpeed = clampFloat(0.55 + Math.abs(wind) * 0.55, 0.55, 1.25, 2);
+    fogOpacity = clampFloat(0.03 + coverage * 0.08, 0.03, 0.14, 2);
+    fogDensity = clampFloat(0.26 + coverage * 0.16, 0.24, 0.46, 2);
+  } else if (effect === "foggy") {
+    layerOpacity = clampFloat(0.3 + opacityScale * 0.45, 0.28, 0.82, 2);
+    cloudOpacity = clampFloat(0.12 + coverage * 0.18, 0.12, 0.34, 2);
+    cloudSpeed = clampFloat(0.3 + Math.abs(wind) * 0.25, 0.3, 0.72, 2);
+    fogOpacity = clampFloat(0.24 + coverage * 0.46, 0.24, 0.84, 2);
+    fogDensity = clampFloat(0.42 + coverage * 0.45, 0.42, 0.92, 2);
+  } else if (effect === "hail") {
+    layerOpacity = clampFloat(0.5 + opacityScale * 0.38, 0.36, 0.92, 2);
+    cloudOpacity = clampFloat(0.42 + coverage * 0.4 + intensity * 0.06, 0.42, 0.92, 2);
+    cloudSpeed = clampFloat(1 + intensity * 0.72 + Math.abs(wind) * 0.55, 1, 2.1, 2);
+    fogOpacity = clampFloat(0.05 + intensity * 0.1, 0.05, 0.2, 2);
+    fogDensity = clampFloat(0.34 + coverage * 0.2, 0.3, 0.6, 2);
+  }
+
+  root.style.setProperty("--weather-layer-opacity", `${effect === "none" ? 0 : layerOpacity}`);
+  root.style.setProperty("--weather-cloud-opacity", `${cloudOpacity}`);
+  root.style.setProperty("--weather-cloud-speed", `${cloudSpeed}`);
+  root.style.setProperty("--weather-fog-opacity", `${fogOpacity}`);
+  root.style.setProperty("--weather-fog-density", `${fogDensity}`);
+  root.style.setProperty("--weather-sun-opacity", `${sunOpacity}`);
+  root.style.setProperty("--weather-sun-x", sunX);
+  root.style.setProperty("--weather-sun-y", sunY);
+  root.style.setProperty("--weather-sun-size", sunSize);
+
+  WEATHER_RENDERER.apply({
+    effect,
+    enabled: effect !== "none",
+    intensity,
+    wind,
+    opacity: opacityScale,
+    coverage,
+  });
+  WEATHER_RENDERER.resize();
 }
 
 function normalizeTodos(rows) {

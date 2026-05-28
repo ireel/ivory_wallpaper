@@ -2,7 +2,7 @@
 
 `Ivory Wallpaper` 是一个基于 `Rust + Tao + Wry + 静态前端` 的 Windows 动态壁纸运行时项目。
 
-它当前的核心目标不是“生成给别人再打包的网页模板”，而是直接在 Windows 上把 `index.html` 作为壁纸内容运行起来，并解决下面这些真实问题：
+它当前的核心目标不是“生成给别人再打包的网页模板”，而是直接在 Windows 上把 `web/index.html` 作为壁纸内容运行起来，并解决下面这些真实问题：
 
 - 直接挂载到 `WorkerW` 桌面层，保留原生桌面图标。
 - 多显示器下为每块屏幕创建独立壁纸窗口，而不是简单横向拼成一个超宽页面。
@@ -17,7 +17,7 @@
    负责创建窗口、加载网页、挂到 `WorkerW`、枚举多显示器，以及在 `F8` 时显示覆盖编辑窗口。
 
 2. 前端静态页面
-   由 `index.html`、`styles.css`、`script.js` 组成，负责壁纸 UI、数据存储、日历、备忘录和 Todo 逻辑。
+   由 `web/index.html`、`web/styles.css`、`web/js/*.js` 组成，负责壁纸 UI、数据存储、日历、备忘录和 Todo 逻辑。
 
 ### 运行模式
 
@@ -38,9 +38,18 @@ ivory_wallpaper/
 ├─ Cargo.toml
 ├─ Cargo.lock
 ├─ README.md
-├─ index.html
-├─ styles.css
-├─ script.js
+├─ web/
+│  ├─ index.html
+│  ├─ styles.css
+│  └─ js/
+│     ├─ main.js
+│     ├─ config.js
+│     ├─ store.js
+│     ├─ utils.js
+│     ├─ native-bridge.js
+│     ├─ startup-settings.js
+│     ├─ weather-renderer.js
+│     └─ script.js
 └─ src/
    └─ main.rs
 ```
@@ -50,13 +59,13 @@ ivory_wallpaper/
 - `src/main.rs`
   Rust 运行时入口。处理参数解析、窗口创建、`WorkerW` 挂载、多屏独立窗口、`F8` 热键切换。
 
-- `index.html`
+- `web/index.html`
   壁纸页面结构。
 
-- `styles.css`
+- `web/styles.css`
   壁纸主题、布局、只读壁纸态 / 编辑态样式、日历与 Todo 样式。
 
-- `script.js`
+- `web/js/*.js`
   前端状态管理、持久化、按日记录、Todo deadline、自动顺延、导入导出等逻辑。
 
 ## 已实现功能
@@ -120,24 +129,25 @@ cargo build
 ### 2. 普通窗口运行
 
 ```powershell
-cargo run -- --mode lively .\index.html
+cargo run -- --mode lively .\web\index.html
 ```
 
 ### 3. 直接挂到桌面壁纸层
 
 ```powershell
-cargo run -- --mode workerw .\index.html
+cargo run -- --mode workerw .\web\index.html
 ```
 
 如果省略 HTML 路径，程序会尝试：
 
-- 可执行文件所在目录的 `index.html`
-- 当前工作目录的 `index.html`
+- 可执行文件所在目录的 `web/index.html`
+- 当前工作目录的 `web/index.html`
+- 兼容旧布局时，可执行文件所在目录或当前工作目录的 `index.html`
 
 ### 4. 调试用全屏模式
 
 ```powershell
-cargo run -- --mode fullscreen .\index.html
+cargo run -- --mode fullscreen .\web\index.html
 ```
 
 ## `workerw` 模式的实际行为
@@ -187,8 +197,8 @@ cargo run -- --mode fullscreen .\index.html
 ```powershell
 cargo check
 cargo build
-cargo run -- --mode lively .\index.html
-cargo run -- --mode workerw .\index.html
+cargo run -- --mode lively .\web\index.html
+cargo run -- --mode workerw .\web\index.html
 ```
 
 ### 前端调试建议

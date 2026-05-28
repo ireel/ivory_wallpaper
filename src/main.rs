@@ -184,7 +184,7 @@ fn parse_mode(value: &str) -> Result<RunMode> {
 
 fn print_help() {
     println!(
-        "Usage: ivory_wallpaper_runtime [--mode lively|workerw|fullscreen] [--html <index.html>] [index.html]"
+        "Usage: ivory_wallpaper_runtime [--mode lively|workerw|fullscreen] [--html <web/index.html>] [web/index.html]"
     );
 }
 
@@ -308,11 +308,13 @@ fn resolve_html_path(input_path: Option<PathBuf>) -> Result<PathBuf> {
 
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("web").join("index.html"));
             candidates.push(dir.join("index.html"));
         }
     }
 
     if let Ok(cwd) = env::current_dir() {
+        candidates.push(cwd.join("web").join("index.html"));
         candidates.push(cwd.join("index.html"));
     }
 
@@ -324,7 +326,7 @@ fn resolve_html_path(input_path: Option<PathBuf>) -> Result<PathBuf> {
         }
     }
 
-    bail!("cannot locate index.html. pass --html <path> or place index.html near executable");
+    bail!("cannot locate web/index.html. pass --html <path> or place web/index.html near executable");
 }
 
 fn to_file_url(path: &Path) -> Result<Url> {

@@ -9,7 +9,12 @@
   <body>
     <div class="background-layer" id="backgroundLayer"></div>
     <div class="vignette"></div>
-    <div class="weather-layer" id="weatherLayer" aria-hidden="true" hidden></div>
+    <div class="weather-layer" id="weatherLayer" aria-hidden="true" hidden>
+      <canvas class="weather-canvas" id="weatherCanvas"></canvas>
+      <div class="weather-glow" id="weatherGlow"></div>
+      <div class="weather-clouds" id="weatherClouds"></div>
+      <div class="weather-fog" id="weatherFog"></div>
+    </div>
     <div class="desktop-grid-overlay" id="desktopGrid"></div>
 
     <header class="hud-controls">
@@ -65,7 +70,12 @@
 
       <div class="weather-mode-group" id="weatherModeGroup" role="group" aria-label="天气模式">
         <button class="weather-mode-btn" data-weather-mode="off" type="button">关闭</button>
+        <button class="weather-mode-btn" data-weather-mode="sunny" type="button">晴天</button>
         <button class="weather-mode-btn" data-weather-mode="rain" type="button">下雨</button>
+        <button class="weather-mode-btn" data-weather-mode="snow" type="button">下雪</button>
+        <button class="weather-mode-btn" data-weather-mode="cloudy" type="button">多云</button>
+        <button class="weather-mode-btn" data-weather-mode="foggy" type="button">大雾</button>
+        <button class="weather-mode-btn" data-weather-mode="hail" type="button">冰雹</button>
       </div>
 
       <label class="field">
@@ -89,6 +99,14 @@
         <div class="range-row">
           <input id="weatherOpacity" type="range" min="0.25" max="1" step="0.05" />
           <output id="weatherOpacityValue" for="weatherOpacity">0.72</output>
+        </div>
+      </label>
+
+      <label class="field">
+        <span>覆盖密度</span>
+        <div class="range-row">
+          <input id="weatherCoverage" type="range" min="0.2" max="1" step="0.05" />
+          <output id="weatherCoverageValue" for="weatherCoverage">0.58</output>
         </div>
       </label>
 
@@ -270,8 +288,9 @@
       </li>
     </template>
 
-    <script src="./web/native-bridge.js"></script>
-    <script src="./web/startup-settings.js"></script>
-    <script src="./script.js"></script>
+    <script src="./js/native-bridge.js"></script>
+    <script src="./js/startup-settings.js"></script>
+    <script src="./js/weather-renderer.js"></script>
+    <script type="module" src="./js/main.js"></script>
   </body>
 </html>
