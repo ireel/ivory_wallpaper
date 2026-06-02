@@ -1,0 +1,32 @@
+:root {
+  --text-main: rgba(24, 27, 36, 0.94);
+  --text-subtle: rgba(30, 35, 48, 0.76);
+  --text-on-glass: rgba(255, 255, 255, 0.92);
+  --line-soft: rgba(255, 255, 255, 0.36);
+  --line-strong: rgba(255, 255, 255, 0.62);
+  --panel: rgba(255, 255, 255, 0.1);
+  --panel-strong: rgba(255, 255, 255, 0.14);
+  --accent: #7c5cff;
+  --accent-2: #62e6dc;
+  --accent-3: #ff9fd7;
+  --accent-soft: rgba(124, 92, 255, 0.18);
+  --today-fill: rgba(98, 230, 220, 0.18);
+  --today-line: rgba(98, 230, 220, 0.56);
+  --recorded-fill: rgba(255, 192, 115, 0.16);
+  --recorded-line: rgba(255, 192, 115, 0.42);
+  --selected-fill: rgba(124, 92, 255, 0.18);
+  --selected-line: rgba(124, 92, 255, 0.56);
+  --outside-fill: rgba(255, 255, 255, 0.08);
+
+  --glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.045));
+  --glass-bg-deep: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035));
+  --glass-border: rgba(255, 255, 255, 0.42);
+  --glass-inner-line: rgba(255, 255, 255, 0.54);
+  --glass-shadow: 0 18px 46px rgba(30, 38, 58, 0.16), 0 6px 18px rgba(75, 113, 137, 0.1);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.58), inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+  --blur-panel: blur(12px) saturate(1.28);
+  --blur-control: blur(8px) saturate(1.18);
+  --radius-panel: 12px;
+  --radius-card: 8px;
+  --radius-control: 8px;
+}

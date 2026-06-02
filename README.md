@@ -17,7 +17,7 @@
    负责创建窗口、加载网页、挂到 `WorkerW`、枚举多显示器，以及在 `F8` 时显示覆盖编辑窗口。
 
 2. 前端静态页面
-   由 `web/index.html`、`web/styles.css`、`web/js/*.js` 组成，负责壁纸 UI、数据存储、日历、备忘录和 Todo 逻辑。
+   由 `web/index.html`、`web/css/app.css`、`web/css/**/*.css`、`web/js/*.js` 组成，负责壁纸 UI、数据存储、日历、备忘录和 Todo 逻辑。
 
 ### 运行模式
 
@@ -40,7 +40,12 @@ ivory_wallpaper/
 ├─ README.md
 ├─ web/
 │  ├─ index.html
-│  ├─ styles.css
+│  ├─ css/
+│  │  ├─ app.css
+│  │  ├─ legacy.css
+│  │  ├─ foundations/
+│  │  ├─ components/
+│  │  └─ features/
 │  └─ js/
 │     ├─ main.js
 │     ├─ config.js
@@ -62,8 +67,8 @@ ivory_wallpaper/
 - `web/index.html`
   壁纸页面结构。
 
-- `web/styles.css`
-  壁纸主题、布局、只读壁纸态 / 编辑态样式、日历与 Todo 样式。
+- `web/css/app.css`
+  前端样式入口。按 `foundations`、`components`、`features` 分层导入，`legacy.css` 保留原有样式作为兼容基线。
 
 - `web/js/*.js`
   前端状态管理、持久化、按日记录、Todo deadline、自动顺延、导入导出等逻辑。

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ivory Wallpaper</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./css/app.css" />
   </head>
   <body>
     <div class="background-layer" id="backgroundLayer"></div>
@@ -18,102 +18,154 @@
     <div class="desktop-grid-overlay" id="desktopGrid"></div>
 
     <header class="hud-controls">
-      <button id="openBackgroundModal" class="btn btn-primary" type="button">更换背景</button>
-      <button id="openCalendarModal" class="btn btn-ghost" type="button">日历记录</button>
-      <button id="toggleWeatherPanel" class="btn btn-ghost" type="button">天气效果</button>
-      <button id="toggleGridPanel" class="btn btn-ghost" type="button">网格微调</button>
-      <button id="openStartupModal" class="btn btn-ghost" type="button">启动设置</button>
-      <button id="restartAppBtn" class="btn btn-ghost" type="button">重启应用</button>
-      <button id="exportConfigBtn" class="btn btn-ghost" type="button">保存配置</button>
-      <label for="configUpload" class="btn btn-ghost">加载配置</label>
-      <input id="configUpload" type="file" accept="application/json" />
-      <button id="resetDataBtn" class="btn btn-ghost" type="button">清空当前日期记录</button>
+      <button id="openSettingsModal" class="btn btn-primary" type="button">设置</button>
     </header>
 
-    <aside class="grid-panel is-hidden" id="gridPanel" aria-label="网格微调面板">
-      <p class="panel-title">桌面单元格</p>
-      <p class="panel-tip">参数会按基准分辨率保存，切换分辨率时自动等比换算，同时会考虑系统缩放。</p>
-      <label class="field">
-        <span>单元格宽度 (px)</span>
-        <input id="gridCellWidth" type="number" min="40" max="180" />
-      </label>
-      <label class="field">
-        <span>单元格高度 (px)</span>
-        <input id="gridCellHeight" type="number" min="40" max="220" />
-      </label>
-      <label class="field">
-        <span>水平偏移 (px)</span>
-        <input id="gridOffsetX" type="number" min="-400" max="400" />
-      </label>
-      <label class="field">
-        <span>垂直偏移 (px)</span>
-        <input id="gridOffsetY" type="number" min="-400" max="400" />
-      </label>
-      <label class="field">
-        <span>网格透明度 (0-1)</span>
-        <input id="gridOpacity" type="number" min="0" max="1" step="0.05" />
-      </label>
-      <label class="field">
-        <span>基准宽度 (px)</span>
-        <input id="gridBaseWidth" type="number" min="800" max="8000" />
-      </label>
-      <label class="field">
-        <span>基准高度 (px)</span>
-        <input id="gridBaseHeight" type="number" min="600" max="5000" />
-      </label>
-      <p class="panel-tip" id="gridRuntimeHint">当前换算值: --</p>
-      <button id="resetGridBtn" class="btn btn-mini" type="button">恢复默认网格</button>
-    </aside>
+    <div
+      class="modal is-hidden settings-shell"
+      id="settingsModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settingsModalTitle"
+    >
+      <div class="modal-panel unified-settings-panel">
+        <div class="modal-header">
+          <div>
+            <h2 id="settingsModalTitle">设置</h2>
+            <p class="modal-subtitle">统一调整背景、天气、桌面网格、启动和配置。</p>
+          </div>
+          <button id="closeSettingsModal" class="btn btn-mini" type="button">关闭</button>
+        </div>
 
-    <aside class="weather-panel is-hidden" id="weatherPanel" aria-label="天气效果面板">
-      <p class="panel-title">天气效果</p>
-      <p class="panel-tip">参考 web-weather 的天气参数组织方式，但只保留适合壁纸常驻的轻量特效层。</p>
+        <div class="settings-layout">
+          <nav class="settings-sidebar" aria-label="设置分类">
+            <button class="settings-nav-item is-active" data-settings-pane="background" type="button">背景</button>
+            <button class="settings-nav-item" data-settings-pane="weather" type="button">天气</button>
+            <button class="settings-nav-item" data-settings-pane="grid" type="button">网格</button>
+            <button class="settings-nav-item" data-settings-pane="startup" type="button">启动</button>
+            <button class="settings-nav-item" data-settings-pane="data" type="button">配置</button>
+          </nav>
 
-      <div class="weather-mode-group" id="weatherModeGroup" role="group" aria-label="天气模式">
-        <button class="weather-mode-btn" data-weather-mode="off" type="button">关闭</button>
-        <button class="weather-mode-btn" data-weather-mode="sunny" type="button">晴天</button>
-        <button class="weather-mode-btn" data-weather-mode="rain" type="button">下雨</button>
-        <button class="weather-mode-btn" data-weather-mode="snow" type="button">下雪</button>
-        <button class="weather-mode-btn" data-weather-mode="cloudy" type="button">多云</button>
-        <button class="weather-mode-btn" data-weather-mode="foggy" type="button">大雾</button>
-        <button class="weather-mode-btn" data-weather-mode="hail" type="button">冰雹</button>
+          <div class="settings-content">
+            <section class="settings-pane is-active" data-settings-pane-panel="background">
+              <p class="panel-title">背景</p>
+              <p class="panel-tip">选择内置背景或上传本地图片。背景选择会立即应用到壁纸。</p>
+              <button id="openBackgroundModal" class="btn btn-primary" type="button">更换背景</button>
+            </section>
+
+            <section class="settings-pane" data-settings-pane-panel="weather">
+              <button id="toggleWeatherPanel" class="legacy-toggle-control" type="button" tabindex="-1">天气效果</button>
+              <aside class="weather-panel" id="weatherPanel" aria-label="天气效果面板">
+                <p class="panel-title">天气效果</p>
+                <p class="panel-tip">参考 web-weather 的天气参数组织方式，但只保留适合壁纸常驻的轻量特效层。</p>
+
+                <div class="weather-mode-group" id="weatherModeGroup" role="group" aria-label="天气模式">
+                  <button class="weather-mode-btn" data-weather-mode="off" type="button">关闭</button>
+                  <button class="weather-mode-btn" data-weather-mode="sunny" type="button">晴天</button>
+                  <button class="weather-mode-btn" data-weather-mode="rain" type="button">下雨</button>
+                  <button class="weather-mode-btn" data-weather-mode="snow" type="button">下雪</button>
+                  <button class="weather-mode-btn" data-weather-mode="cloudy" type="button">多云</button>
+                  <button class="weather-mode-btn" data-weather-mode="foggy" type="button">大雾</button>
+                  <button class="weather-mode-btn" data-weather-mode="hail" type="button">冰雹</button>
+                </div>
+
+                <label class="field">
+                  <span>雨量强度</span>
+                  <div class="range-row">
+                    <input id="weatherIntensity" type="range" min="0.2" max="1" step="0.05" />
+                    <output id="weatherIntensityValue" for="weatherIntensity">0.56</output>
+                  </div>
+                </label>
+
+                <label class="field">
+                  <span>风向偏移</span>
+                  <div class="range-row">
+                    <input id="weatherWind" type="range" min="-1" max="1" step="0.05" />
+                    <output id="weatherWindValue" for="weatherWind">0.35</output>
+                  </div>
+                </label>
+
+                <label class="field">
+                  <span>图层透明度</span>
+                  <div class="range-row">
+                    <input id="weatherOpacity" type="range" min="0.25" max="1" step="0.05" />
+                    <output id="weatherOpacityValue" for="weatherOpacity">0.72</output>
+                  </div>
+                </label>
+
+                <label class="field">
+                  <span>覆盖密度</span>
+                  <div class="range-row">
+                    <input id="weatherCoverage" type="range" min="0.2" max="1" step="0.05" />
+                    <output id="weatherCoverageValue" for="weatherCoverage">0.58</output>
+                  </div>
+                </label>
+
+                <p class="panel-tip" id="weatherRuntimeHint">当前效果: --</p>
+                <button id="resetWeatherBtn" class="btn btn-mini" type="button">恢复默认天气</button>
+              </aside>
+            </section>
+
+            <section class="settings-pane" data-settings-pane-panel="grid">
+              <button id="toggleGridPanel" class="legacy-toggle-control" type="button" tabindex="-1">网格微调</button>
+              <aside class="grid-panel" id="gridPanel" aria-label="网格微调面板">
+                <p class="panel-title">桌面单元格</p>
+                <p class="panel-tip">参数会按基准分辨率保存，切换分辨率时自动等比换算，同时会考虑系统缩放。</p>
+                <label class="field">
+                  <span>单元格宽度 (px)</span>
+                  <input id="gridCellWidth" type="number" min="40" max="180" />
+                </label>
+                <label class="field">
+                  <span>单元格高度 (px)</span>
+                  <input id="gridCellHeight" type="number" min="40" max="220" />
+                </label>
+                <label class="field">
+                  <span>水平偏移 (px)</span>
+                  <input id="gridOffsetX" type="number" min="-400" max="400" />
+                </label>
+                <label class="field">
+                  <span>垂直偏移 (px)</span>
+                  <input id="gridOffsetY" type="number" min="-400" max="400" />
+                </label>
+                <label class="field">
+                  <span>网格透明度 (0-1)</span>
+                  <input id="gridOpacity" type="number" min="0" max="1" step="0.05" />
+                </label>
+                <label class="field">
+                  <span>基准宽度 (px)</span>
+                  <input id="gridBaseWidth" type="number" min="800" max="8000" />
+                </label>
+                <label class="field">
+                  <span>基准高度 (px)</span>
+                  <input id="gridBaseHeight" type="number" min="600" max="5000" />
+                </label>
+                <p class="panel-tip" id="gridRuntimeHint">当前换算值: --</p>
+                <button id="resetGridBtn" class="btn btn-mini" type="button">恢复默认网格</button>
+              </aside>
+            </section>
+
+            <section class="settings-pane" data-settings-pane-panel="startup">
+              <p class="panel-title">启动</p>
+              <p class="panel-tip">管理应用启动行为，打开后会读取当前 Windows 启动项状态。</p>
+              <button id="openStartupModal" class="btn btn-primary" type="button">启动设置</button>
+            </section>
+
+            <section class="settings-pane" data-settings-pane-panel="data">
+              <p class="panel-title">配置与数据</p>
+              <p class="panel-tip">保存或导入当前壁纸配置，也可以清空当前日期记录。</p>
+              <div class="settings-action-grid">
+                <button id="restartAppBtn" class="btn btn-ghost" type="button">重启应用</button>
+                <button id="exportConfigBtn" class="btn btn-ghost" type="button">保存配置</button>
+                <label for="configUpload" class="btn btn-ghost">加载配置</label>
+                <input id="configUpload" type="file" accept="application/json" />
+                <button id="resetDataBtn" class="btn btn-ghost" type="button">清空当前日期记录</button>
+                <button id="openCalendarModal" class="btn btn-ghost" type="button">日历记录</button>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
-
-      <label class="field">
-        <span>雨量强度</span>
-        <div class="range-row">
-          <input id="weatherIntensity" type="range" min="0.2" max="1" step="0.05" />
-          <output id="weatherIntensityValue" for="weatherIntensity">0.56</output>
-        </div>
-      </label>
-
-      <label class="field">
-        <span>风向偏移</span>
-        <div class="range-row">
-          <input id="weatherWind" type="range" min="-1" max="1" step="0.05" />
-          <output id="weatherWindValue" for="weatherWind">0.35</output>
-        </div>
-      </label>
-
-      <label class="field">
-        <span>图层透明度</span>
-        <div class="range-row">
-          <input id="weatherOpacity" type="range" min="0.25" max="1" step="0.05" />
-          <output id="weatherOpacityValue" for="weatherOpacity">0.72</output>
-        </div>
-      </label>
-
-      <label class="field">
-        <span>覆盖密度</span>
-        <div class="range-row">
-          <input id="weatherCoverage" type="range" min="0.2" max="1" step="0.05" />
-          <output id="weatherCoverageValue" for="weatherCoverage">0.58</output>
-        </div>
-      </label>
-
-      <p class="panel-tip" id="weatherRuntimeHint">当前效果: --</p>
-      <button id="resetWeatherBtn" class="btn btn-mini" type="button">恢复默认天气</button>
-    </aside>
+    </div>
 
     <section class="widget clock-widget" aria-label="时间区域">
       <p class="widget-title">TIME</p>
@@ -293,5 +345,6 @@
     <script src="./js/startup-settings.js"></script>
     <script src="./js/weather-renderer.js"></script>
     <script src="./js/script.js"></script>
+    <script src="./js/settings-shell.js"></script>
   </body>
 </html>

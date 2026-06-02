@@ -1,0 +1,121 @@
+.widget,
+.grid-panel,
+.weather-panel,
+.modal-panel,
+.calendar-board,
+.calendar-sidebar,
+.settings-card,
+.memo-panel,
+.todo-panel,
+.calendar-memo-preview,
+.calendar-todo-item,
+.calendar-empty-todos {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  backdrop-filter: var(--blur-panel);
+  -webkit-backdrop-filter: var(--blur-panel);
+}
+
+.widget,
+.modal-panel {
+  border-radius: var(--radius-panel);
+}
+
+.memo-panel,
+.todo-panel,
+.calendar-board,
+.calendar-sidebar,
+.settings-card,
+.calendar-memo-preview,
+.calendar-todo-item,
+.calendar-empty-todos {
+  border-radius: var(--radius-card);
+}
+
+.btn,
+.date-chip,
+.weather-mode-btn,
+.todo-form input,
+.todo-deadline-field,
+.field input,
+.todo-item,
+.todo-edit,
+.todo-remove,
+.todo-checkbox {
+  border-color: rgba(255, 255, 255, 0.46);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.08)),
+    rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 10px 26px rgba(57, 65, 90, 0.14);
+  backdrop-filter: var(--blur-control);
+  -webkit-backdrop-filter: var(--blur-control);
+}
+
+.btn,
+.date-chip,
+.weather-mode-btn,
+.todo-edit,
+.todo-remove {
+  border-radius: var(--radius-control);
+}
+
+.btn:hover,
+.date-chip:hover,
+.weather-mode-btn:hover,
+.todo-edit:hover,
+.todo-remove:hover {
+  border-color: rgba(255, 255, 255, 0.76);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0.12)),
+    rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 14px 30px rgba(57, 65, 90, 0.18),
+    0 0 22px rgba(98, 230, 220, 0.18);
+}
+
+.btn-primary,
+.btn-mini.is-active,
+.weather-mode-btn.is-active,
+.date-chip {
+  color: rgba(255, 255, 255, 0.96);
+  border-color: rgba(255, 255, 255, 0.58);
+  background:
+    linear-gradient(135deg, rgba(124, 92, 255, 0.7), rgba(98, 230, 220, 0.54)),
+    rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.72),
+    0 14px 30px rgba(124, 92, 255, 0.26),
+    0 0 24px rgba(98, 230, 220, 0.2);
+}
+
+.memo-input,
+.memo-preview,
+.todo-form input,
+.field input,
+.calendar-memo-preview {
+  color: rgba(30, 34, 45, 0.92);
+}
+
+.memo-input::placeholder,
+.todo-form input::placeholder {
+  color: rgba(62, 68, 83, 0.46);
+}
+
+.todo-checkbox {
+  border-radius: 8px;
+}
+
+.todo-checkbox::after {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+
+.todo-checkbox:checked {
+  border-color: rgba(255, 255, 255, 0.7);
+  background:
+    linear-gradient(135deg, rgba(124, 92, 255, 0.88), rgba(98, 230, 220, 0.7)),
+    rgba(255, 255, 255, 0.2);
+}
