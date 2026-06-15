@@ -103,13 +103,22 @@
       }
       running = true;
       lastTick = 0;
-      animationId = global.requestAnimationFrame(frame);
+
+      const tick = () => {
+        if (!running) {
+          return;
+        }
+        const now = global.performance ? global.performance.now() : Date.now();
+        frame(now);
+        animationId = global.setTimeout(tick, 16);
+      };
+      animationId = global.setTimeout(tick, 16);
     }
 
     function stop() {
       running = false;
       if (animationId) {
-        global.cancelAnimationFrame(animationId);
+        global.clearTimeout(animationId);
         animationId = 0;
       }
     }
@@ -130,8 +139,6 @@
 
       clearCanvas();
       drawFrame(delta, timestamp);
-
-      animationId = global.requestAnimationFrame(frame);
     }
 
     function clearCanvas() {

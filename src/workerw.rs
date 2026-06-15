@@ -130,6 +130,7 @@ fn try_build_workerw_windows(
         let target_url = with_monitor_query(html_url, target.index, target.is_primary, "editor")?;
         let webview = build_webview(web_context, &window, event_loop_proxy, &target_url)?;
         set_webview_physical_bounds(&webview, target.width, target.height)?;
+        window.set_visible(false);
 
         overlay_indices.push(windows.len());
         windows.push(ManagedWindow { window, webview });

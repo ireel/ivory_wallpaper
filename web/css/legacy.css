@@ -1201,6 +1201,7 @@ body[data-ivory-role="wallpaper"] .todo-remove,
 body[data-ivory-role="wallpaper"] .modal,
 body[data-ivory-role="wallpaper"] .weather-panel,
 body[data-ivory-role="wallpaper"] .grid-panel,
+body[data-ivory-role="wallpaper"] .desktop-grid-overlay,
 body[data-ivory-role="wallpaper"] #selectedDateTrigger {
   display: none !important;
 }
