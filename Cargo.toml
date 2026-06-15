@@ -6,6 +6,7 @@ description = "Rust runtime that renders local HTML wallpaper content."
 
 [dependencies]
 anyhow = "1.0.102"
+base64 = "0.22.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tao = "0.35.0"

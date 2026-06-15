@@ -472,10 +472,85 @@ function applyBackground() {
   const customUrl = getRenderableCustomBackground();
   if (state.backgroundId === "custom" && customUrl) {
     el.backgroundLayer.style.backgroundImage = `url("${customUrl}")`;
+    scheduleSystemWallpaperSync();
     return;
   }
   const matched = PRESET_BACKGROUNDS.find((item) => item.id === state.backgroundId) || PRESET_BACKGROUNDS[0];
   el.backgroundLayer.style.backgroundImage = matched.image;
+  scheduleSystemWallpaperSync();
+}
+
+function scheduleSystemWallpaperSync() {
+  if (!NATIVE_BRIDGE.available || VIEW_CONTEXT.isEditor) {
+    return;
+  }
+
+  window.clearTimeout(scheduleSystemWallpaperSync.timer);
+  scheduleSystemWallpaperSync.timer = window.setTimeout(() => {
+    syncSystemWallpaper().catch((error) => {
+      console.warn("System wallpaper sync failed:", error);
+    });
+  }, 300);
+}
+
+async function syncSystemWallpaper() {
+  if (state.backgroundId === "custom" && state.backgroundCustomFile) {
+    await NATIVE_BRIDGE.invoke("syncSystemWallpaperFile", { path: state.backgroundCustomFile });
+    return;
+  }
+
+  const sourceUrl = getCurrentBackgroundSourceUrl();
+  if (!sourceUrl) {
+    return;
+  }
+
+  const dataUrl = await renderBackgroundSourceToPngDataUrl(sourceUrl);
+  await NATIVE_BRIDGE.invoke("syncSystemWallpaper", { dataUrl });
+}
+
+function getCurrentBackgroundSourceUrl() {
+  const customUrl = getRenderableCustomBackground();
+  if (state.backgroundId === "custom" && customUrl) {
+    return customUrl;
+  }
+
+  const matched = PRESET_BACKGROUNDS.find((item) => item.id === state.backgroundId) || PRESET_BACKGROUNDS[0];
+  return extractCssBackgroundUrl(matched.image);
+}
+
+function extractCssBackgroundUrl(value) {
+  const match = String(value || "").match(/^url\((['"]?)(.*)\1\)$/);
+  return match ? match[2] : "";
+}
+
+async function renderBackgroundSourceToPngDataUrl(sourceUrl) {
+  const image = await loadImage(sourceUrl);
+  const width = Math.max(1, Math.round(window.innerWidth * (window.devicePixelRatio || 1)));
+  const height = Math.max(1, Math.round(window.innerHeight * (window.devicePixelRatio || 1)));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  const drawWidth = image.naturalWidth * scale;
+  const drawHeight = image.naturalHeight * scale;
+  const drawX = (width - drawWidth) / 2;
+  const drawY = (height - drawHeight) / 2;
+
+  ctx.fillStyle = "#04101b";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  return canvas.toDataURL("image/png");
+}
+
+function loadImage(sourceUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Failed to load wallpaper image: ${sourceUrl.slice(0, 120)}`));
+    image.src = sourceUrl;
+  });
 }
 
 async function handleBackgroundUpload(event) {

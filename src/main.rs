@@ -1,14 +1,18 @@
-#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
 
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
+use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use tao::window::WindowBuilder;
 use url::Url;
 use wry::{WebContext, WebViewBuilder};
@@ -20,10 +24,12 @@ mod webview_store;
 mod workerw;
 
 use native_bridge::{handle_user_event, parse_native_navigation_event};
+#[cfg(target_os = "windows")]
+use native_bridge::sync_system_wallpaper_file;
 use startup::{hide_console_window_for_workerw, sync_launch_at_startup_preference};
 use webview_store::build_shared_web_context;
 #[cfg(target_os = "windows")]
-use workerw::{WorkerWRuntime, build_workerw_windows, poll_workerw_hotkey};
+use workerw::{WorkerWRuntime, build_workerw_windows, ensure_workerw_layout};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RunMode {
@@ -47,6 +53,25 @@ enum AppUserEvent {
     GetStartupStatus { id: String },
     SetStartupEnabled { id: String, enabled: bool },
     RestartApp { id: String },
+    SyncSystemWallpaperChunk {
+        id: String,
+        session: String,
+        index: usize,
+        total: usize,
+        chunk: String,
+    },
+    SyncSystemWallpaperCommit {
+        id: String,
+        session: String,
+    },
+    SyncSystemWallpaperFile {
+        id: String,
+        path: String,
+    },
+    #[serde(skip)]
+    ToggleEditMode,
+    #[serde(skip)]
+    CheckLayout,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,6 +104,8 @@ struct AppRuntime {
     workerw: Option<WorkerWRuntime>,
     #[cfg(target_os = "windows")]
     startup_html_path: PathBuf,
+    #[cfg(target_os = "windows")]
+    wallpaper_syncs: HashMap<String, Vec<Option<String>>>,
 }
 
 fn main() {
@@ -100,29 +127,88 @@ fn run() -> Result<()> {
         eprintln!("launch-at-startup sync failed: {error:#}");
     }
 
+    #[cfg(target_os = "windows")]
+    if let Err(error) = sync_fixed_config_system_wallpaper() {
+        eprintln!("fixed-config system wallpaper sync failed: {error:#}");
+    }
+
     let event_loop = EventLoopBuilder::<AppUserEvent>::with_user_event().build();
     let event_loop_proxy = event_loop.create_proxy();
-    let mut runtime = build_runtime(&event_loop, &event_loop_proxy, options.mode, &options.html_path, &html_url)?;
 
-    event_loop.run(move |event, _, control_flow| {
+    // 1. 创建后台 F8 热键监听线程，使用 Windows 原生 RegisterHotKey，避免 CPU 忙轮询
+    #[cfg(target_os = "windows")]
+    if options.mode == RunMode::WorkerW {
+        let proxy_clone = event_loop_proxy.clone();
+        std::thread::spawn(move || {
+            use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_NOREPEAT, VK_F8};
+            use windows::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
+            unsafe {
+                if RegisterHotKey(
+                    None,
+                    1, // 热键 ID
+                    MOD_NOREPEAT,
+                    VK_F8.0 as u32,
+                ).is_err() {
+                    eprintln!("Failed to register F8 hotkey thread");
+                    return;
+                }
+
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                    if msg.message == WM_HOTKEY {
+                        let _ = proxy_clone.send_event(AppUserEvent::ToggleEditMode);
+                    }
+                }
+            }
+        });
+    }
+
+    // 2. 创建后台显示器布局改变定时检测线程，每 2 秒唤醒事件循环检测一次
+    #[cfg(target_os = "windows")]
+    if options.mode == RunMode::WorkerW {
+        let proxy_clone = event_loop_proxy.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let _ = proxy_clone.send_event(AppUserEvent::CheckLayout);
+            }
+        });
+    }
+
+    let mut runtime = build_runtime(
+        &event_loop,
+        &event_loop_proxy,
+        options.mode,
+        &options.html_path,
+        &html_url,
+    )?;
+
+    event_loop.run(move |event, event_loop, control_flow| {
         let _keep_windows_alive = &runtime.windows;
 
-        *control_flow = if options.mode == RunMode::WorkerW {
-            ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50))
-        } else {
-            ControlFlow::Wait
-        };
+        // 完全进入阻塞等待状态，零 CPU 占用
+        *control_flow = ControlFlow::Wait;
 
         match event {
             Event::UserEvent(event) => {
-                if let Err(error) = handle_user_event(&mut runtime, event) {
-                    eprintln!("native event failed: {error:#}");
-                }
-            }
-            Event::MainEventsCleared => {
-                #[cfg(target_os = "windows")]
-                if let Err(error) = poll_workerw_hotkey(&mut runtime) {
-                    eprintln!("workerw interaction toggle failed: {error:#}");
+                match event {
+                    AppUserEvent::ToggleEditMode => {
+                        #[cfg(target_os = "windows")]
+                        if let Err(error) = workerw::toggle_workerw_edit_mode(&mut runtime) {
+                            eprintln!("failed to toggle edit mode: {error:#}");
+                        }
+                    }
+                    AppUserEvent::CheckLayout => {
+                        #[cfg(target_os = "windows")]
+                        if let Err(error) = ensure_workerw_layout(&mut runtime, event_loop, &event_loop_proxy, &html_url) {
+                            eprintln!("workerw layout refresh failed: {error:#}");
+                        }
+                    }
+                    _ => {
+                        if let Err(error) = handle_user_event(&mut runtime, event) {
+                            eprintln!("native event failed: {error:#}");
+                        }
+                    }
                 }
             }
             Event::WindowEvent {
@@ -189,7 +275,10 @@ fn print_help() {
     );
 }
 
-fn build_window(event_loop: &EventLoop<AppUserEvent>, mode: RunMode) -> Result<tao::window::Window> {
+fn build_window(
+    event_loop: &EventLoopWindowTarget<AppUserEvent>,
+    mode: RunMode,
+) -> Result<tao::window::Window> {
     let mut builder = WindowBuilder::new().with_title("Ivory Wallpaper Runtime");
 
     match mode {
@@ -204,6 +293,7 @@ fn build_window(event_loop: &EventLoop<AppUserEvent>, mode: RunMode) -> Result<t
                 .with_decorations(false)
                 .with_resizable(false)
                 .with_transparent(false)
+                .with_visible(mode != RunMode::WorkerW) // WorkerW 窗口初始不可见以防止被 GlazeWM 捕获
                 .with_inner_size(LogicalSize::new(1280.0, 800.0));
         }
     }
@@ -218,26 +308,42 @@ fn build_webview(
     url: &Url,
 ) -> Result<wry::WebView> {
     let proxy = event_loop_proxy.clone();
-    WebViewBuilder::new_with_web_context(web_context)
-        .with_initialization_script(&build_initialization_script())
-        .with_url(url.as_str())
-        .with_navigation_handler(move |navigation_url| {
-            match parse_native_navigation_event(&navigation_url) {
-                Ok(Some(event)) => {
-                    if let Err(error) = proxy.send_event(event) {
-                        eprintln!("failed to forward native navigation event: {error}");
+    let mut attempts = 0;
+    loop {
+        let builder = WebViewBuilder::new_with_web_context(web_context)
+            .with_initialization_script(&build_initialization_script())
+            .with_url(url.as_str())
+            .with_navigation_handler({
+                let proxy = proxy.clone();
+                move |navigation_url| {
+                    match parse_native_navigation_event(&navigation_url) {
+                        Ok(Some(event)) => {
+                            if let Err(error) = proxy.send_event(event) {
+                                  eprintln!("failed to forward native navigation event: {error}");
+                            }
+                            false
+                        }
+                        Ok(None) => true,
+                        Err(error) => {
+                            eprintln!("invalid native navigation `{navigation_url}`: {error:#}");
+                            false
+                        }
                     }
-                    false
                 }
-                Ok(None) => true,
-                Err(error) => {
-                    eprintln!("invalid native navigation `{navigation_url}`: {error:#}");
-                    false
+            });
+
+        match builder.build(window) {
+            Ok(webview) => return Ok(webview),
+            Err(error) => {
+                attempts += 1;
+                if attempts >= 15 {
+                    return Err(error).context("failed to build webview after 15 attempts");
                 }
+                eprintln!("WebView2 build attempt {attempts} failed: {error:?}; retrying in 200ms...");
+                std::thread::sleep(Duration::from_millis(200));
             }
-        })
-        .build(window)
-        .context("failed to build webview")
+        }
+    }
 }
 
 fn build_initialization_script() -> String {
@@ -263,10 +369,19 @@ fn build_fixed_config_restore_script() -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let raw = std::fs::read_to_string(&config_path)
-        .with_context(|| format!("failed to read fixed config file: {}", config_path.display()))?;
+    let raw = std::fs::read_to_string(&config_path).with_context(|| {
+        format!(
+            "failed to read fixed config file: {}",
+            config_path.display()
+        )
+    })?;
     let config: serde_json::Value = serde_json::from_str(raw.trim_start_matches('\u{feff}'))
-        .with_context(|| format!("failed to parse fixed config file: {}", config_path.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to parse fixed config file: {}",
+                config_path.display()
+            )
+        })?;
     let restore_id = config
         .get("restoreId")
         .and_then(serde_json::Value::as_str)
@@ -305,7 +420,7 @@ fn build_fixed_config_restore_script() -> Result<Option<String>> {
 }
 
 fn build_runtime(
-    event_loop: &EventLoop<AppUserEvent>,
+    event_loop: &EventLoopWindowTarget<AppUserEvent>,
     event_loop_proxy: &EventLoopProxy<AppUserEvent>,
     mode: RunMode,
     html_path: &Path,
@@ -319,19 +434,20 @@ fn build_runtime(
             let webview = build_webview(&mut web_context, &window, event_loop_proxy, html_url)?;
 
             if mode == RunMode::Fullscreen {
-                window.set_fullscreen(Some(tao::window::Fullscreen::Borderless(window.current_monitor())));
+                window.set_fullscreen(Some(tao::window::Fullscreen::Borderless(
+                    window.current_monitor(),
+                )));
             }
 
             Ok(AppRuntime {
                 _web_context: web_context,
-                windows: vec![ManagedWindow {
-                    window,
-                    webview,
-                }],
+                windows: vec![ManagedWindow { window, webview }],
                 #[cfg(target_os = "windows")]
                 workerw: None,
                 #[cfg(target_os = "windows")]
                 startup_html_path: html_path.to_path_buf(),
+                #[cfg(target_os = "windows")]
+                wallpaper_syncs: HashMap::new(),
             })
         }
         RunMode::WorkerW => {
@@ -348,6 +464,7 @@ fn build_runtime(
                     windows,
                     workerw: Some(workerw),
                     startup_html_path: html_path.to_path_buf(),
+                    wallpaper_syncs: HashMap::new(),
                 })
             }
 
@@ -385,17 +502,64 @@ fn resolve_html_path(input_path: Option<PathBuf>) -> Result<PathBuf> {
 
     for path in candidates {
         if path.exists() {
-            return path
+            let canonical = path
                 .canonicalize()
-                .with_context(|| format!("failed to normalize html path: {}", path.display()));
+                .with_context(|| format!("failed to normalize html path: {}", path.display()))?;
+            return Ok(normalize_canonical_path(canonical));
         }
     }
 
-    bail!("cannot locate web/index.html. pass --html <path> or place web/index.html near executable");
+    bail!(
+        "cannot locate web/index.html. pass --html <path> or place web/index.html near executable"
+    );
 }
 
 fn to_file_url(path: &Path) -> Result<Url> {
-    Url::from_file_path(path).map_err(|_| anyhow::anyhow!("invalid file path for URL: {}", path.display()))
+    Url::from_file_path(path)
+        .map_err(|_| anyhow::anyhow!("invalid file path for URL: {}", path.display()))
 }
 
+#[cfg(target_os = "windows")]
+fn sync_fixed_config_system_wallpaper() -> Result<()> {
+    let Some(program_data) = env::var_os("PROGRAMDATA") else {
+        return Ok(());
+    };
+    let config_path = PathBuf::from(program_data)
+        .join("IvoryWallpaper")
+        .join("config.json");
+    if !config_path.exists() {
+        return Ok(());
+    }
 
+    let raw = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("failed to read fixed config file: {}", config_path.display()))?;
+    let config: serde_json::Value = serde_json::from_str(raw.trim_start_matches('\u{feff}'))
+        .with_context(|| format!("failed to parse fixed config file: {}", config_path.display()))?;
+    let custom_background_file = config
+        .get("customBackgroundFile")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if custom_background_file.is_empty() {
+        return Ok(());
+    }
+
+    sync_system_wallpaper_file(Path::new(custom_background_file))
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_canonical_path(path: PathBuf) -> PathBuf {
+    let raw = path.display().to_string();
+    if let Some(stripped) = raw.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
+#[cfg(not(target_os = "windows"))]
+fn normalize_canonical_path(path: PathBuf) -> PathBuf {
+    path
+}
