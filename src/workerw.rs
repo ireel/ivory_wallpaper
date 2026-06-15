@@ -166,8 +166,17 @@ pub fn ensure_workerw_layout(
         runtime.monitor_signature, next_signature
     );
 
-    // 优雅释放并卸载旧窗口，避免被平铺管理器（如 GlazeWM）或操作系统缓存干扰
-    for managed in &app.windows {
+    // 1. 先尝试构建新窗口，成功后再销毁和隐藏旧窗口，做安全保护！
+    let (windows, workerw) = build_workerw_windows(
+        &mut app._web_context,
+        event_loop,
+        event_loop_proxy,
+        html_url,
+    )?;
+
+    // 2. 只有新窗口构建成功了，我们再把旧窗口隐藏并从系统卸载
+    let old_windows = std::mem::replace(&mut app.windows, windows);
+    for managed in old_windows {
         let hwnd = windows::Win32::Foundation::HWND(managed.window.hwnd() as *mut core::ffi::c_void);
         unsafe {
             let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_HIDE);
@@ -175,13 +184,6 @@ pub fn ensure_workerw_layout(
         }
     }
 
-    let (windows, workerw) = build_workerw_windows(
-        &mut app._web_context,
-        event_loop,
-        event_loop_proxy,
-        html_url,
-    )?;
-    app.windows = windows;
     app.workerw = Some(workerw);
     Ok(())
 }
@@ -258,17 +260,13 @@ fn monitor_signature(targets: &[MonitorTarget]) -> String {
     let mut parts = Vec::with_capacity(targets.len());
     for target in targets {
         parts.push(format!(
-            "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+            "{}:{}:{}:{}:{}:{}",
             target.index,
             if target.is_primary { 1 } else { 0 },
             target.left,
             target.top,
             target.width,
-            target.height,
-            target.host.left,
-            target.host.top,
-            target.host.width,
-            target.host.height
+            target.height
         ));
     }
     parts.join("|")
