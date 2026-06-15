@@ -216,6 +216,31 @@ async function init() {
   window.addEventListener("beforeunload", cleanupCustomBackgroundUrl);
   window.addEventListener("beforeunload", () => WEATHER_RENDERER.destroy());
   window.addEventListener("storage", handleStorageSync);
+
+  if (!VIEW_CONTEXT.isEditor) {
+    window.setInterval(() => {
+      try {
+        const weather = readStorage(STORAGE_KEYS.weather, DEFAULT_WEATHER);
+        if (JSON.stringify(weather) !== JSON.stringify(state.weather)) {
+          state.weather = normalizeWeather(weather);
+          applyWeather();
+          syncWeatherInputs();
+        }
+        const backgroundId = readStorage(STORAGE_KEYS.background, PRESET_BACKGROUNDS[0].id);
+        if (backgroundId !== state.backgroundId) {
+          state.backgroundId = backgroundId;
+          applyBackground();
+        }
+        const customBgFile = readStorage(STORAGE_KEYS.customBackgroundFile, "");
+        if (customBgFile !== state.backgroundCustomFile) {
+          state.backgroundCustomFile = customBgFile;
+          applyBackground();
+        }
+      } catch (e) {
+        console.warn("Passive settings sync failed:", e);
+      }
+    }, 1800);
+  }
 }
 
 function bindEvents() {

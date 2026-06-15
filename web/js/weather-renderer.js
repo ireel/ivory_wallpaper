@@ -69,8 +69,8 @@
     }
 
     function resize() {
-      const width = global.innerWidth || 0;
-      const height = global.innerHeight || 0;
+      const width = canvas.clientWidth || global.innerWidth || 0;
+      const height = canvas.clientHeight || global.innerHeight || 0;
       const dpr = Math.min(global.devicePixelRatio || 1, 1.5);
 
       if (viewport.width === width && viewport.height === height && viewport.dpr === dpr) {
