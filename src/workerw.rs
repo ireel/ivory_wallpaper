@@ -121,7 +121,7 @@ fn try_build_workerw_windows(
             target.height,
             overscan,
         )?;
-
+        window.set_visible(true);
         windows.push(ManagedWindow { window, webview });
     }
 
