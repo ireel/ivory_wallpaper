@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use tao::event_loop::{EventLoopProxy, EventLoopWindowTarget};
-use tao::window::WindowBuilder;
 use tao::platform::windows::WindowExtWindows;
+use tao::window::WindowBuilder;
 use url::Url;
 use wry::Rect;
 use wry::WebContext;
 
-use crate::{AppRuntime, AppUserEvent, ManagedWindow, RunMode, build_webview, build_window};
+use crate::{build_webview, build_window, AppRuntime, AppUserEvent, ManagedWindow, RunMode};
 
 const WORKERW_STARTUP_RETRY_ATTEMPTS: usize = 45;
 const WORKERW_STARTUP_RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -107,11 +107,6 @@ fn try_build_workerw_windows(
         ));
         window.set_inner_size(PhysicalSize::new(window_width as u32, window_height as u32));
 
-        let target_url =
-            with_monitor_query(html_url, target.index, target.is_primary, "wallpaper")?;
-        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url)?;
-        set_webview_physical_bounds(&webview, window_width, window_height)?;
-
         attach_window_to_desktop_host(
             &window,
             target.host,
@@ -122,6 +117,11 @@ fn try_build_workerw_windows(
             overscan,
         )?;
         window.set_visible(true);
+
+        let target_url =
+            with_monitor_query(html_url, target.index, target.is_primary, "wallpaper")?;
+        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url)?;
+        set_webview_physical_bounds(&webview, window_width, window_height)?;
         windows.push(ManagedWindow { window, webview });
     }
 
@@ -177,9 +177,13 @@ pub fn ensure_workerw_layout(
     // 2. 只有新窗口构建成功了，我们再把旧窗口隐藏并从系统卸载
     let old_windows = std::mem::replace(&mut app.windows, windows);
     for managed in old_windows {
-        let hwnd = windows::Win32::Foundation::HWND(managed.window.hwnd() as *mut core::ffi::c_void);
+        let hwnd =
+            windows::Win32::Foundation::HWND(managed.window.hwnd() as *mut core::ffi::c_void);
         unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_HIDE);
+            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+                hwnd,
+                windows::Win32::UI::WindowsAndMessaging::SW_HIDE,
+            );
             let _ = windows::Win32::UI::WindowsAndMessaging::SetParent(hwnd, None);
         }
     }
@@ -313,12 +317,12 @@ fn with_monitor_query(html_url: &Url, index: usize, is_primary: bool, role: &str
 }
 
 fn find_desktop_state() -> Result<DesktopState> {
+    use windows::core::{w, BOOL};
     use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetWindowRect,
-        SMTO_NORMAL, SendMessageTimeoutW,
+        SendMessageTimeoutW, SMTO_NORMAL,
     };
-    use windows::core::{BOOL, w};
 
     #[derive(Default)]
     struct WorkerWSearch {
@@ -490,15 +494,15 @@ fn attach_window_to_desktop_host(
     use tao::platform::windows::WindowExtWindows;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, SWP_NOZORDER, SWP_SHOWWINDOW, SetParent,
-        SetWindowLongW, SetWindowPos, WS_CHILD, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE,
-        WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_VISIBLE,
+        GetWindowLongW, SetParent, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOP,
+        SWP_SHOWWINDOW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_APPWINDOW,
+        WS_EX_CLIENTEDGE, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_VISIBLE,
     };
 
     let hwnd = HWND(window.hwnd() as *mut core::ffi::c_void);
     unsafe {
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        let next_style = WS_CHILD.0 | WS_VISIBLE.0;
+        let next_style = WS_CHILD.0 | WS_VISIBLE.0 | WS_CLIPCHILDREN.0 | WS_CLIPSIBLINGS.0;
         let next_ex_style = ex_style
             & !(WS_EX_APPWINDOW.0 | WS_EX_WINDOWEDGE.0 | WS_EX_CLIENTEDGE.0 | WS_EX_STATICEDGE.0);
         let _ = SetWindowLongW(hwnd, GWL_STYLE, next_style as i32);
@@ -508,12 +512,12 @@ fn attach_window_to_desktop_host(
 
         SetWindowPos(
             hwnd,
-            Some(HWND::default()),
+            Some(HWND_TOP),
             x - overscan,
             y - overscan,
             width + overscan * 2,
             height + overscan * 2,
-            SWP_NOZORDER | SWP_SHOWWINDOW,
+            SWP_SHOWWINDOW,
         )
         .context("SetWindowPos in WorkerW failed")?;
     }
@@ -540,7 +544,7 @@ fn mark_overlay_as_tool_window(window: &tao::window::Window) {
     use tao::platform::windows::WindowExtWindows;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
 
     let hwnd = HWND(window.hwnd() as *mut core::ffi::c_void);
