@@ -2,13 +2,12 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use tao::event_loop::{EventLoopProxy, EventLoopWindowTarget};
-use tao::platform::windows::WindowExtWindows;
 use tao::window::WindowBuilder;
 use url::Url;
 use wry::Rect;
 use wry::WebContext;
 
-use crate::{build_webview, build_window, AppRuntime, AppUserEvent, ManagedWindow, RunMode};
+use crate::{build_webview, AppRuntime, AppUserEvent, ManagedWindow};
 
 const WORKERW_STARTUP_RETRY_ATTEMPTS: usize = 45;
 const WORKERW_STARTUP_RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -90,14 +89,14 @@ fn try_build_workerw_windows(
 ) -> Result<(Vec<ManagedWindow>, WorkerWRuntime)> {
     use tao::dpi::{PhysicalPosition, PhysicalSize};
 
-    let desktop = find_desktop_state()?;
+    let desktop = find_desktop_state_v2()?;
     let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
     let monitor_signature = monitor_signature(&monitor_targets);
     let mut windows = Vec::with_capacity(monitor_targets.len() * 2);
     let mut overlay_indices = Vec::with_capacity(monitor_targets.len());
 
     for target in &monitor_targets {
-        let window = build_window(event_loop, RunMode::WorkerW)?;
+        let window = build_wallpaper_window(event_loop)?;
         let overscan = window_overscan(&window);
         let window_width = target.width + overscan * 2;
         let window_height = target.height + overscan * 2;
@@ -146,18 +145,44 @@ fn try_build_workerw_windows(
     ))
 }
 
+fn build_wallpaper_window(
+    event_loop: &EventLoopWindowTarget<AppUserEvent>,
+) -> Result<tao::window::Window> {
+    use tao::dpi::LogicalSize;
+    use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
+
+    let window = WindowBuilder::new()
+        .with_title("Ivory Wallpaper")
+        .with_window_classname("IvoryWallpaperWorkerW")
+        .with_skip_taskbar(true)
+        .with_decorations(false)
+        .with_resizable(false)
+        .with_transparent(false)
+        .with_visible(false)
+        .with_inner_size(LogicalSize::new(1280.0, 800.0))
+        .build(event_loop)
+        .context("failed to create wallpaper window")?;
+
+    let _ = window.set_skip_taskbar(true);
+    mark_tool_window(&window);
+    Ok(window)
+}
+
 pub fn ensure_workerw_layout(
     app: &mut AppRuntime,
     event_loop: &EventLoopWindowTarget<AppUserEvent>,
     event_loop_proxy: &EventLoopProxy<AppUserEvent>,
     html_url: &Url,
 ) -> Result<()> {
+    use tao::platform::windows::WindowExtWindows;
+
     let Some(runtime) = app.workerw.as_mut() else {
         return Ok(());
     };
 
     let next_signature = current_monitor_signature(event_loop)?;
     if next_signature == runtime.monitor_signature {
+        repair_workerw_wallpaper_windows(app, event_loop)?;
         return Ok(());
     }
 
@@ -192,6 +217,52 @@ pub fn ensure_workerw_layout(
     Ok(())
 }
 
+fn repair_workerw_wallpaper_windows(
+    app: &mut AppRuntime,
+    event_loop: &EventLoopWindowTarget<AppUserEvent>,
+) -> Result<()> {
+    let Some(runtime) = app.workerw.as_ref() else {
+        return Ok(());
+    };
+
+    let wallpaper_count = runtime
+        .overlay_indices
+        .first()
+        .copied()
+        .unwrap_or(app.windows.len());
+    if wallpaper_count == 0 {
+        return Ok(());
+    }
+
+    let desktop = find_desktop_state_v2()?;
+    let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
+
+    for (index, target) in monitor_targets.iter().take(wallpaper_count).enumerate() {
+        let Some(managed) = app.windows.get(index) else {
+            continue;
+        };
+
+        let overscan = window_overscan(&managed.window);
+        attach_window_to_desktop_host(
+            &managed.window,
+            target.host,
+            target.left - target.host.left,
+            target.top - target.host.top,
+            target.width,
+            target.height,
+            overscan,
+        )?;
+        managed.window.set_visible(true);
+        set_webview_physical_bounds(
+            &managed.webview,
+            target.width + overscan * 2,
+            target.height + overscan * 2,
+        )?;
+    }
+
+    Ok(())
+}
+
 fn build_overlay_window(
     event_loop: &EventLoopWindowTarget<AppUserEvent>,
     target: MonitorTarget,
@@ -214,7 +285,7 @@ fn build_overlay_window(
         .context("failed to create overlay editor window")?;
 
     let _ = window.set_skip_taskbar(true);
-    mark_overlay_as_tool_window(&window);
+    mark_tool_window(&window);
     Ok(window)
 }
 
@@ -255,7 +326,7 @@ fn build_monitor_targets(
 }
 
 fn current_monitor_signature(event_loop: &EventLoopWindowTarget<AppUserEvent>) -> Result<String> {
-    let desktop = find_desktop_state()?;
+    let desktop = find_desktop_state_v2()?;
     let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
     Ok(monitor_signature(&monitor_targets))
 }
@@ -316,6 +387,150 @@ fn with_monitor_query(html_url: &Url, index: usize, is_primary: bool, role: &str
     Ok(url)
 }
 
+fn find_desktop_state_v2() -> Result<DesktopState> {
+    use windows::core::{w, BOOL};
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetWindowRect,
+        IsWindowVisible, SendMessageTimeoutW, SMTO_NORMAL,
+    };
+
+    #[derive(Default)]
+    struct Search {
+        candidates: Vec<HWND>,
+    }
+
+    unsafe extern "system" fn enum_top_windows(top: HWND, lparam: LPARAM) -> BOOL {
+        let search = unsafe { &mut *(lparam.0 as *mut Search) };
+        let shell_view = unsafe {
+            FindWindowExW(
+                Some(top),
+                Some(HWND::default()),
+                w!("SHELLDLL_DefView"),
+                None,
+            )
+            .unwrap_or_default()
+        };
+
+        if !shell_view.0.is_null() {
+            let workerw = unsafe {
+                FindWindowExW(Some(HWND::default()), Some(top), w!("WorkerW"), None)
+                    .unwrap_or_default()
+            };
+            push_unique_hwnd(&mut search.candidates, workerw);
+        } else if window_class_is_v2(top, "WorkerW") {
+            push_unique_hwnd(&mut search.candidates, top);
+        }
+
+        BOOL(1)
+    }
+
+    unsafe extern "system" fn enum_child_workerw(child: HWND, lparam: LPARAM) -> BOOL {
+        let search = unsafe { &mut *(lparam.0 as *mut Search) };
+        if window_class_is_v2(child, "WorkerW") {
+            push_unique_hwnd(&mut search.candidates, child);
+        }
+        BOOL(1)
+    }
+
+    fn window_class_is_v2(hwnd: HWND, expected: &str) -> bool {
+        let mut class_name = [0u16; 256];
+        let written = unsafe { GetClassNameW(hwnd, &mut class_name) };
+        if written <= 0 {
+            return false;
+        }
+        String::from_utf16_lossy(&class_name[..written as usize]).eq_ignore_ascii_case(expected)
+    }
+
+    fn push_unique_hwnd(candidates: &mut Vec<HWND>, hwnd: HWND) {
+        if hwnd.0.is_null() {
+            return;
+        }
+        if !candidates.iter().any(|candidate| candidate.0 == hwnd.0) {
+            candidates.push(hwnd);
+        }
+    }
+
+    fn to_desktop_host(hwnd: HWND) -> Option<DesktopHost> {
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+            return None;
+        }
+
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        if width < 256 || height < 256 {
+            return None;
+        }
+
+        Some(DesktopHost {
+            hwnd,
+            left: rect.left,
+            top: rect.top,
+            width,
+            height,
+        })
+    }
+
+    let progman =
+        unsafe { FindWindowW(w!("Progman"), None) }.context("cannot locate Progman window")?;
+    if progman.0.is_null() {
+        bail!("cannot find Progman window");
+    }
+
+    let mut result = 0usize;
+    unsafe {
+        let _ = SendMessageTimeoutW(
+            progman,
+            0x052C,
+            WPARAM(0),
+            LPARAM(0),
+            SMTO_NORMAL,
+            1000,
+            Some(&mut result),
+        );
+    }
+
+    let mut search = Search::default();
+    unsafe {
+        let _ = EnumChildWindows(
+            Some(progman),
+            Some(enum_child_workerw),
+            LPARAM((&mut search as *mut Search) as isize),
+        );
+        let _ = EnumWindows(
+            Some(enum_top_windows),
+            LPARAM((&mut search as *mut Search) as isize),
+        );
+    }
+
+    let mut hosts: Vec<DesktopHost> = Vec::new();
+    for hwnd in search.candidates {
+        if let Some(host) = to_desktop_host(hwnd) {
+            if unsafe { IsWindowVisible(hwnd).as_bool() } {
+                hosts.insert(0, host);
+            } else {
+                hosts.push(host);
+            }
+        }
+    }
+
+    if hosts.is_empty() {
+        if let Some(host) = to_desktop_host(progman) {
+            hosts.push(host);
+        }
+    }
+
+    if hosts.is_empty() {
+        bail!("cannot find a desktop WorkerW host suitable for wallpaper rendering");
+    }
+
+    hosts.dedup_by(|a, b| a.hwnd.0 == b.hwnd.0);
+    hosts.sort_by_key(|host| -(i64::from(host.width) * i64::from(host.height)));
+    Ok(DesktopState { hosts })
+}
+
+#[allow(dead_code)]
 fn find_desktop_state() -> Result<DesktopState> {
     use windows::core::{w, BOOL};
     use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
@@ -494,9 +709,10 @@ fn attach_window_to_desktop_host(
     use tao::platform::windows::WindowExtWindows;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, SetParent, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOP,
-        SWP_SHOWWINDOW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_APPWINDOW,
-        WS_EX_CLIENTEDGE, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_VISIBLE,
+        GetParent, GetWindowLongW, SetParent, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE,
+        HWND_TOP, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_SHOWWINDOW, WS_CHILD, WS_CLIPCHILDREN,
+        WS_CLIPSIBLINGS, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE,
+        WS_VISIBLE,
     };
 
     let hwnd = HWND(window.hwnd() as *mut core::ffi::c_void);
@@ -509,6 +725,12 @@ fn attach_window_to_desktop_host(
         let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, next_ex_style as i32);
 
         SetParent(hwnd, Some(host.hwnd)).context("SetParent failed for WorkerW host")?;
+        if GetParent(hwnd)
+            .map(|parent| parent.0 != host.hwnd.0)
+            .unwrap_or(true)
+        {
+            SetParent(hwnd, Some(host.hwnd)).context("SetParent retry failed for WorkerW host")?;
+        }
 
         SetWindowPos(
             hwnd,
@@ -517,7 +739,7 @@ fn attach_window_to_desktop_host(
             y - overscan,
             width + overscan * 2,
             height + overscan * 2,
-            SWP_SHOWWINDOW,
+            SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
         .context("SetWindowPos in WorkerW failed")?;
     }
@@ -540,7 +762,7 @@ fn set_webview_physical_bounds(webview: &wry::WebView, width: i32, height: i32) 
         .context("failed to resize WebView to wallpaper window bounds")
 }
 
-fn mark_overlay_as_tool_window(window: &tao::window::Window) {
+fn mark_tool_window(window: &tao::window::Window) {
     use tao::platform::windows::WindowExtWindows;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{

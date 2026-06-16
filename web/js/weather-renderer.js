@@ -35,6 +35,7 @@
       height: 0,
       dpr: 1,
     };
+    let lastAppliedWeather = { ...DEFAULT_WEATHER };
 
     const rain = createRainPool(560);
     const snow = createSnowPool(280);
@@ -48,6 +49,7 @@
     function apply(nextWeather) {
       const next = normalizeWeather(nextWeather);
       const effectChanged = state.effect !== next.effect || state.enabled !== next.enabled;
+      lastAppliedWeather = { ...next };
 
       state.effect = next.effect;
       state.enabled = next.enabled;
@@ -69,8 +71,10 @@
     }
 
     function resize() {
-      const width = canvas.clientWidth || global.innerWidth || 0;
-      const height = canvas.clientHeight || global.innerHeight || 0;
+      const rect = canvas.getBoundingClientRect();
+      const layerRect = canvas.parentElement?.getBoundingClientRect();
+      const width = Math.round(rect.width || layerRect?.width || global.innerWidth || 0);
+      const height = Math.round(rect.height || layerRect?.height || global.innerHeight || 0);
       const dpr = Math.min(global.devicePixelRatio || 1, 1.5);
 
       if (viewport.width === width && viewport.height === height && viewport.dpr === dpr) {
@@ -93,7 +97,9 @@
     function destroy() {
       stop();
       clearCanvas();
-      global.removeEventListener("resize", resize);
+      global.removeEventListener("resize", recover);
+      global.removeEventListener("pageshow", recover);
+      global.document?.removeEventListener("visibilitychange", recover);
     }
 
     function ensureRunning() {
@@ -113,6 +119,11 @@
         animationId = global.setTimeout(tick, 16);
       };
       animationId = global.setTimeout(tick, 16);
+    }
+
+    function recover() {
+      resize();
+      apply(lastAppliedWeather);
     }
 
     function stop() {
@@ -263,12 +274,15 @@
       splash.clear();
     }
 
-    global.addEventListener("resize", resize);
+    global.addEventListener("resize", recover);
+    global.addEventListener("pageshow", recover);
+    global.document?.addEventListener("visibilitychange", recover);
     resize();
 
     return {
       apply,
       resize,
+      recover,
       destroy,
     };
   }

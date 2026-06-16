@@ -423,7 +423,12 @@ function bindEvents() {
     });
   });
 
-  window.addEventListener("resize", applyGridAndLayout);
+  window.addEventListener("resize", () => {
+    applyGridAndLayout();
+    WEATHER_RENDERER.recover?.();
+  });
+  window.addEventListener("pageshow", () => WEATHER_RENDERER.recover?.());
+  document.addEventListener("visibilitychange", () => WEATHER_RENDERER.recover?.());
 }
 
 function initClock() {
@@ -1989,7 +1994,7 @@ function syncWeatherMetrics() {
     opacity: opacityScale,
     coverage,
   });
-  WEATHER_RENDERER.resize();
+  WEATHER_RENDERER.recover?.();
 }
 
 function normalizeTodos(rows) {
