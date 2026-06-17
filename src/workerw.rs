@@ -210,7 +210,7 @@ pub fn ensure_workerw_layout(
     let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
     let next_signature = monitor_signature(&monitor_targets);
     if next_signature == runtime.monitor_signature {
-        if workerw_wallpaper_windows_healthy(app, &monitor_targets)? {
+        if workerw_wallpaper_windows_healthy(app, &monitor_targets, &desktop.hosts)? {
             return Ok(());
         }
 
@@ -254,6 +254,7 @@ pub fn ensure_workerw_layout(
 fn workerw_wallpaper_windows_healthy(
     app: &AppRuntime,
     monitor_targets: &[MonitorTarget],
+    desktop_hosts: &[DesktopHost],
 ) -> Result<bool> {
     use tao::platform::windows::WindowExtWindows;
     use windows::Win32::Foundation::{HWND, RECT};
@@ -282,12 +283,12 @@ fn workerw_wallpaper_windows_healthy(
 
         let overscan = window_overscan(&managed.window);
         let hwnd = HWND(managed.window.hwnd() as *mut core::ffi::c_void);
-        let parent_matches = unsafe {
+        let parent_is_desktop_host = unsafe {
             GetParent(hwnd)
-                .map(|parent| parent.0 == target.host.hwnd.0)
+                .map(|parent| desktop_hosts.iter().any(|host| parent.0 == host.hwnd.0))
                 .unwrap_or(false)
         };
-        if !parent_matches || !unsafe { IsWindowVisible(hwnd).as_bool() } {
+        if !parent_is_desktop_host || !unsafe { IsWindowVisible(hwnd).as_bool() } {
             return Ok(false);
         }
 
