@@ -68,6 +68,7 @@ enum AppUserEvent {
         id: String,
         path: String,
     },
+    GetRecoveredData { id: String },
     #[serde(skip)]
     ToggleEditMode,
     #[serde(skip)]
@@ -117,7 +118,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let options = parse_args()?;
-    let html_url = to_file_url(&options.html_path)?;
+    let html_url = Url::parse("ivory-app://localhost/index.html").context("failed to parse app URL")?;
 
     #[cfg(target_os = "windows")]
     hide_console_window_for_workerw(options.mode);
@@ -306,11 +307,51 @@ fn build_webview(
     window: &tao::window::Window,
     event_loop_proxy: &EventLoopProxy<AppUserEvent>,
     url: &Url,
+    html_path: &Path,
 ) -> Result<wry::WebView> {
     let proxy = event_loop_proxy.clone();
     let mut attempts = 0;
+    let web_dir = html_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     loop {
+        let web_dir_clone = web_dir.clone();
         let builder = WebViewBuilder::new_with_web_context(web_context)
+            .with_custom_protocol("ivory-app".into(), move |_webview_id, request| {
+                let path = request.uri().path();
+                let relative_path = path.strip_prefix('/').unwrap_or(path);
+                let file_path = if relative_path.is_empty() {
+                    web_dir_clone.join("index.html")
+                } else {
+                    web_dir_clone.join(relative_path)
+                };
+
+                match std::fs::read(&file_path) {
+                    Ok(content) => {
+                        let mime_type = match file_path.extension().and_then(|ext| ext.to_str()) {
+                            Some("html") => "text/html; charset=utf-8",
+                            Some("css") => "text/css; charset=utf-8",
+                            Some("js") => "application/javascript; charset=utf-8",
+                            Some("svg") => "image/svg+xml",
+                            Some("png") => "image/png",
+                            Some("jpg") | Some("jpeg") => "image/jpeg",
+                            Some("json") => "application/json; charset=utf-8",
+                            _ => "application/octet-stream",
+                        };
+                        wry::http::Response::builder()
+                            .header(wry::http::header::CONTENT_TYPE, mime_type)
+                            .body(content)
+                            .unwrap()
+                            .map(Into::into)
+                    }
+                    Err(err) => {
+                        wry::http::Response::builder()
+                            .status(404)
+                            .header(wry::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                            .body(format!("File not found: {err}").into_bytes())
+                            .unwrap()
+                            .map(Into::into)
+                    }
+                }
+            })
             .with_initialization_script(&build_initialization_script())
             .with_url(url.as_str())
             .with_navigation_handler({
@@ -431,7 +472,7 @@ fn build_runtime(
     match mode {
         RunMode::Lively | RunMode::Fullscreen => {
             let window = build_window(event_loop, mode)?;
-            let webview = build_webview(&mut web_context, &window, event_loop_proxy, html_url)?;
+            let webview = build_webview(&mut web_context, &window, event_loop_proxy, html_url, html_path)?;
 
             if mode == RunMode::Fullscreen {
                 window.set_fullscreen(Some(tao::window::Fullscreen::Borderless(
@@ -458,6 +499,7 @@ fn build_runtime(
                     event_loop,
                     event_loop_proxy,
                     html_url,
+                    html_path,
                 )?;
                 Ok(AppRuntime {
                     _web_context: web_context,
@@ -514,6 +556,7 @@ fn resolve_html_path(input_path: Option<PathBuf>) -> Result<PathBuf> {
     );
 }
 
+#[allow(dead_code)]
 fn to_file_url(path: &Path) -> Result<Url> {
     Url::from_file_path(path)
         .map_err(|_| anyhow::anyhow!("invalid file path for URL: {}", path.display()))

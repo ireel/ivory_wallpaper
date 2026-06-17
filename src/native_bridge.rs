@@ -89,6 +89,7 @@ pub fn parse_native_navigation_event(navigation_url: &str) -> Result<Option<AppU
             id,
             path: path.context("missing path query parameter")?,
         },
+        "getRecoveredData" => AppUserEvent::GetRecoveredData { id },
         _ => bail!("unknown command: {command}"),
     };
 
@@ -161,6 +162,37 @@ pub fn handle_user_event(runtime: &mut AppRuntime, event: AppUserEvent) -> Resul
                     }),
                 )?;
             }
+            AppUserEvent::GetRecoveredData { id } => {
+                let Some(program_data) = env::var_os("PROGRAMDATA") else {
+                    send_ipc_ok(runtime, id, serde_json::Value::Null)?;
+                    return Ok(());
+                };
+                let recovered_path = std::path::PathBuf::from(program_data)
+                    .join("IvoryWallpaper")
+                    .join("recovered_data.json");
+                if !recovered_path.exists() {
+                    send_ipc_ok(runtime, id, serde_json::Value::Null)?;
+                    return Ok(());
+                }
+                match std::fs::read_to_string(&recovered_path) {
+                    Ok(raw) => {
+                        let _ = std::fs::remove_file(&recovered_path);
+                        match serde_json::from_str::<serde_json::Value>(&raw) {
+                            Ok(parsed) => {
+                                send_ipc_ok(runtime, id, parsed)?;
+                            }
+                            Err(err) => {
+                                eprintln!("failed to parse recovered data json: {err}");
+                                send_ipc_ok(runtime, id, serde_json::Value::Null)?;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("failed to read recovered data file: {err}");
+                        send_ipc_ok(runtime, id, serde_json::Value::Null)?;
+                    }
+                }
+            }
             AppUserEvent::ToggleEditMode | AppUserEvent::CheckLayout => {}
         }
         return Ok(());
@@ -184,6 +216,9 @@ pub fn handle_user_event(runtime: &mut AppRuntime, event: AppUserEvent) -> Resul
             | AppUserEvent::SyncSystemWallpaperCommit { id, .. }
             | AppUserEvent::SyncSystemWallpaperFile { id, .. } => {
                 send_ipc_error(runtime, id, "System wallpaper sync is only available on Windows.")?;
+            }
+            AppUserEvent::GetRecoveredData { id } => {
+                send_ipc_ok(runtime, id, serde_json::Value::Null)?;
             }
             AppUserEvent::ToggleEditMode | AppUserEvent::CheckLayout => {}
         }

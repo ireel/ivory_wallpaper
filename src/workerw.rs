@@ -49,11 +49,12 @@ pub fn build_workerw_windows(
     event_loop: &EventLoopWindowTarget<AppUserEvent>,
     event_loop_proxy: &EventLoopProxy<AppUserEvent>,
     html_url: &Url,
+    html_path: &std::path::Path,
 ) -> Result<(Vec<ManagedWindow>, WorkerWRuntime)> {
     let mut last_error = None;
 
     for attempt in 1..=WORKERW_STARTUP_RETRY_ATTEMPTS {
-        match try_build_workerw_windows(web_context, event_loop, event_loop_proxy, html_url) {
+        match try_build_workerw_windows(web_context, event_loop, event_loop_proxy, html_url, html_path) {
             Ok(result) => {
                 if attempt > 1 {
                     eprintln!("WorkerW desktop host became available on attempt {attempt}");
@@ -86,6 +87,7 @@ fn try_build_workerw_windows(
     event_loop: &EventLoopWindowTarget<AppUserEvent>,
     event_loop_proxy: &EventLoopProxy<AppUserEvent>,
     html_url: &Url,
+    html_path: &std::path::Path,
 ) -> Result<(Vec<ManagedWindow>, WorkerWRuntime)> {
     use tao::dpi::{PhysicalPosition, PhysicalSize};
 
@@ -119,7 +121,7 @@ fn try_build_workerw_windows(
 
         let target_url =
             with_monitor_query(html_url, target.index, target.is_primary, "wallpaper")?;
-        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url)?;
+        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url, html_path)?;
         set_webview_physical_bounds(&webview, window_width, window_height)?;
         windows.push(ManagedWindow { window, webview });
     }
@@ -127,7 +129,7 @@ fn try_build_workerw_windows(
     for target in &monitor_targets {
         let window = build_overlay_window(event_loop, *target)?;
         let target_url = with_monitor_query(html_url, target.index, target.is_primary, "editor")?;
-        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url)?;
+        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url, html_path)?;
         set_webview_physical_bounds(&webview, target.width, target.height)?;
         window.set_visible(false);
 
@@ -191,12 +193,13 @@ pub fn ensure_workerw_layout(
         runtime.monitor_signature, next_signature
     );
 
-    // 1. 先尝试构建新窗口，成功后再销毁和隐藏旧窗口，做安全保护！
+    let html_path = app.startup_html_path.clone();
     let (windows, workerw) = build_workerw_windows(
         &mut app._web_context,
         event_loop,
         event_loop_proxy,
         html_url,
+        &html_path,
     )?;
 
     // 2. 只有新窗口构建成功了，我们再把旧窗口隐藏并从系统卸载
