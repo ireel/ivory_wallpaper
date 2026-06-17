@@ -54,7 +54,13 @@ pub fn build_workerw_windows(
     let mut last_error = None;
 
     for attempt in 1..=WORKERW_STARTUP_RETRY_ATTEMPTS {
-        match try_build_workerw_windows(web_context, event_loop, event_loop_proxy, html_url, html_path) {
+        match try_build_workerw_windows(
+            web_context,
+            event_loop,
+            event_loop_proxy,
+            html_url,
+            html_path,
+        ) {
             Ok(result) => {
                 if attempt > 1 {
                     eprintln!("WorkerW desktop host became available on attempt {attempt}");
@@ -91,7 +97,7 @@ fn try_build_workerw_windows(
 ) -> Result<(Vec<ManagedWindow>, WorkerWRuntime)> {
     use tao::dpi::{PhysicalPosition, PhysicalSize};
 
-    let desktop = find_desktop_state_v2()?;
+    let desktop = find_desktop_state_v2(true)?;
     let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
     let monitor_signature = monitor_signature(&monitor_targets);
     let mut windows = Vec::with_capacity(monitor_targets.len() * 2);
@@ -121,7 +127,13 @@ fn try_build_workerw_windows(
 
         let target_url =
             with_monitor_query(html_url, target.index, target.is_primary, "wallpaper")?;
-        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url, html_path)?;
+        let webview = build_webview(
+            web_context,
+            &window,
+            event_loop_proxy,
+            &target_url,
+            html_path,
+        )?;
         set_webview_physical_bounds(&webview, window_width, window_height)?;
         windows.push(ManagedWindow { window, webview });
     }
@@ -129,7 +141,13 @@ fn try_build_workerw_windows(
     for target in &monitor_targets {
         let window = build_overlay_window(event_loop, *target)?;
         let target_url = with_monitor_query(html_url, target.index, target.is_primary, "editor")?;
-        let webview = build_webview(web_context, &window, event_loop_proxy, &target_url, html_path)?;
+        let webview = build_webview(
+            web_context,
+            &window,
+            event_loop_proxy,
+            &target_url,
+            html_path,
+        )?;
         set_webview_physical_bounds(&webview, target.width, target.height)?;
         window.set_visible(false);
 
@@ -182,9 +200,22 @@ pub fn ensure_workerw_layout(
         return Ok(());
     };
 
-    let next_signature = current_monitor_signature(event_loop)?;
+    let desktop = match find_desktop_state_v2(false) {
+        Ok(desktop) => desktop,
+        Err(error) => {
+            eprintln!("WorkerW passive desktop scan failed: {error:#}; asking Explorer to refresh WorkerW");
+            find_desktop_state_v2(true)?
+        }
+    };
+    let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
+    let next_signature = monitor_signature(&monitor_targets);
     if next_signature == runtime.monitor_signature {
-        repair_workerw_wallpaper_windows(app, event_loop)?;
+        if workerw_wallpaper_windows_healthy(app, &monitor_targets)? {
+            return Ok(());
+        }
+
+        eprintln!("WorkerW wallpaper window health check failed; repairing desktop attachment");
+        repair_workerw_wallpaper_windows(app, &monitor_targets)?;
         return Ok(());
     }
 
@@ -220,9 +251,73 @@ pub fn ensure_workerw_layout(
     Ok(())
 }
 
+fn workerw_wallpaper_windows_healthy(
+    app: &AppRuntime,
+    monitor_targets: &[MonitorTarget],
+) -> Result<bool> {
+    use tao::platform::windows::WindowExtWindows;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetParent, GetWindowRect, IsWindowVisible};
+
+    let Some(runtime) = app.workerw.as_ref() else {
+        return Ok(true);
+    };
+
+    let wallpaper_count = runtime
+        .overlay_indices
+        .first()
+        .copied()
+        .unwrap_or(app.windows.len());
+    if wallpaper_count == 0 {
+        return Ok(true);
+    }
+    if wallpaper_count != monitor_targets.len() {
+        return Ok(false);
+    }
+
+    for (index, target) in monitor_targets.iter().take(wallpaper_count).enumerate() {
+        let Some(managed) = app.windows.get(index) else {
+            return Ok(false);
+        };
+
+        let overscan = window_overscan(&managed.window);
+        let hwnd = HWND(managed.window.hwnd() as *mut core::ffi::c_void);
+        let parent_matches = unsafe {
+            GetParent(hwnd)
+                .map(|parent| parent.0 == target.host.hwnd.0)
+                .unwrap_or(false)
+        };
+        if !parent_matches || !unsafe { IsWindowVisible(hwnd).as_bool() } {
+            return Ok(false);
+        }
+
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+            return Ok(false);
+        }
+
+        let expected_left = target.left - overscan;
+        let expected_top = target.top - overscan;
+        let expected_width = target.width + overscan * 2;
+        let expected_height = target.height + overscan * 2;
+        let actual_width = rect.right - rect.left;
+        let actual_height = rect.bottom - rect.top;
+
+        if (rect.left - expected_left).abs() > 2
+            || (rect.top - expected_top).abs() > 2
+            || (actual_width - expected_width).abs() > 2
+            || (actual_height - expected_height).abs() > 2
+        {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
 fn repair_workerw_wallpaper_windows(
     app: &mut AppRuntime,
-    event_loop: &EventLoopWindowTarget<AppUserEvent>,
+    monitor_targets: &[MonitorTarget],
 ) -> Result<()> {
     let Some(runtime) = app.workerw.as_ref() else {
         return Ok(());
@@ -236,9 +331,6 @@ fn repair_workerw_wallpaper_windows(
     if wallpaper_count == 0 {
         return Ok(());
     }
-
-    let desktop = find_desktop_state_v2()?;
-    let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
 
     for (index, target) in monitor_targets.iter().take(wallpaper_count).enumerate() {
         let Some(managed) = app.windows.get(index) else {
@@ -328,12 +420,6 @@ fn build_monitor_targets(
     Ok(targets)
 }
 
-fn current_monitor_signature(event_loop: &EventLoopWindowTarget<AppUserEvent>) -> Result<String> {
-    let desktop = find_desktop_state_v2()?;
-    let monitor_targets = build_monitor_targets(event_loop, &desktop.hosts)?;
-    Ok(monitor_signature(&monitor_targets))
-}
-
 fn monitor_signature(targets: &[MonitorTarget]) -> String {
     let mut parts = Vec::with_capacity(targets.len());
     for target in targets {
@@ -390,7 +476,7 @@ fn with_monitor_query(html_url: &Url, index: usize, is_primary: bool, role: &str
     Ok(url)
 }
 
-fn find_desktop_state_v2() -> Result<DesktopState> {
+fn find_desktop_state_v2(request_workerw_refresh: bool) -> Result<DesktopState> {
     use windows::core::{w, BOOL};
     use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -481,17 +567,19 @@ fn find_desktop_state_v2() -> Result<DesktopState> {
         bail!("cannot find Progman window");
     }
 
-    let mut result = 0usize;
-    unsafe {
-        let _ = SendMessageTimeoutW(
-            progman,
-            0x052C,
-            WPARAM(0),
-            LPARAM(0),
-            SMTO_NORMAL,
-            1000,
-            Some(&mut result),
-        );
+    if request_workerw_refresh {
+        let mut result = 0usize;
+        unsafe {
+            let _ = SendMessageTimeoutW(
+                progman,
+                0x052C,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_NORMAL,
+                1000,
+                Some(&mut result),
+            );
+        }
     }
 
     let mut search = Search::default();
