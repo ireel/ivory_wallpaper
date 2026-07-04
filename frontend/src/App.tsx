@@ -17,7 +17,7 @@ function App() {
   };
 
   const getBackgroundStyle = () => {
-    if (wallpaperState.backgroundId === 'custom' && wallpaperState.backgroundCustomUrl) {
+    if ((wallpaperState.backgroundId === 'custom' || wallpaperState.backgroundId.startsWith('custom_')) && wallpaperState.backgroundCustomUrl) {
       return { backgroundImage: `url("${wallpaperState.backgroundCustomUrl}")` };
     }
     const preset = PRESET_BACKGROUNDS.find(p => p.id === wallpaperState.backgroundId) || PRESET_BACKGROUNDS[0];

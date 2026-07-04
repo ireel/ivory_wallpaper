@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import type { WeatherState } from '../hooks/useWallpaperState';
+import type { WeatherState, CustomBgMetadata } from '../hooks/useWallpaperState';
 import { useWallpaperState, PRESET_BACKGROUNDS } from '../hooks/useWallpaperState';
 import { X, Palette, Cloud, Grid, Power, Database, Calendar, RefreshCw, ChevronLeft, ChevronRight, Upload, FileDown, RotateCcw, Trash2 } from 'lucide-react';
-import { loadCustomBackgroundBlob, blobToDataUrl } from '../utils/db';
+import { loadCustomBackgroundBlob, blobToDataUrl, idbGet } from '../utils/db';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -37,6 +37,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [calendarYear, setCalendarYear] = useState<number>(() => new Date().getFullYear());
   const [calendarMonth, setCalendarMonth] = useState<number>(() => new Date().getMonth()); // 0-indexed
   const [calSelectedDate, setCalSelectedDate] = useState<string>(() => state.selectedDateKey);
+
+  // Slideshow dynamic Blob URL cache state
+  const [customBgUrls, setCustomBgUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let active = true;
+    async function loadUrls() {
+      const urls: Record<string, string> = {};
+      for (const bg of state.customBackgrounds) {
+        try {
+          const blob = await idbGet(`custom-bg-${bg.id}`);
+          if (blob && active) {
+            urls[bg.id] = URL.createObjectURL(blob);
+          }
+        } catch (e) {
+          console.warn('Failed to load blob URL for custom bg:', bg.id, e);
+        }
+      }
+      if (active) {
+        setCustomBgUrls(prev => {
+          Object.values(prev).forEach(url => {
+            if (url.startsWith('blob:')) {
+              URL.revokeObjectURL(url);
+            }
+          });
+          return urls;
+        });
+      }
+    }
+    loadUrls();
+    return () => {
+      active = false;
+      setCustomBgUrls(prev => {
+        Object.values(prev).forEach(url => {
+          if (url.startsWith('blob:')) {
+            URL.revokeObjectURL(url);
+          }
+        });
+        return {};
+      });
+    };
+  }, [isOpen, state.customBackgrounds]);
 
   // Load startup status from native bridge when opening the tab
   useEffect(() => {
@@ -146,7 +190,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleCustomBgUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      state.changeBackground('custom', file);
+      state.uploadCustomBackground(file);
     }
     e.target.value = '';
   };
@@ -329,75 +373,317 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             
             {/* Background Pane */}
             {activeTab === 'background' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div>
-                  <h4 style={{ fontSize: '15px', fontWeight: 600 }}>桌面壁纸</h4>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    选择内置动态渐变背景，或上传自定义的高清本地图片
-                  </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxHeight: '70vh', overflowY: 'auto', paddingRight: '4px' }}>
+                {/* 1. Slideshow Configuration Card */}
+                <div className="glass-panel" style={{ padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'rgba(255, 255, 255, 0.01)', borderColor: 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h5 style={{ fontSize: '13px', fontWeight: 600 }}>幻灯片轮播壁纸</h5>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        自动在您选择的壁纸队列中进行定时轮换
+                      </p>
+                    </div>
+                    {/* Toggle Switch */}
+                    <label style={{ position: 'relative', display: 'inline-block', width: '46px', height: '24px', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={state.slideshow.enabled} 
+                        onChange={e => state.changeSlideshow({ enabled: e.target.checked })}
+                        style={{ opacity: 0, width: 0, height: 0 }} 
+                      />
+                      <span style={{ position: 'absolute', inset: 0, borderRadius: '34px', background: state.slideshow.enabled ? 'var(--accent)' : 'rgba(255,255,255,0.15)', transition: '0.2s' }} />
+                      <span style={{ position: 'absolute', left: '4px', bottom: '3px', width: '18px', height: '18px', borderRadius: '50%', background: '#f8fafc', transition: '0.2s', transform: state.slideshow.enabled ? 'translateX(20px)' : 'none' }} />
+                    </label>
+                  </div>
+
+                  {state.slideshow.enabled && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
+                      {/* Interval selector */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>轮换时间周期</span>
+                        <select
+                          value={state.slideshow.interval}
+                          onChange={e => state.changeSlideshow({ interval: parseInt(e.target.value) || 5 })}
+                          style={{
+                            background: '#0f172a',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '6px',
+                            color: 'var(--text-primary)',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            outline: 'none',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value={1}>1 分钟</option>
+                          <option value={3}>3 分钟</option>
+                          <option value={5}>5 分钟</option>
+                          <option value={10}>10 分钟</option>
+                          <option value={15}>15 分钟</option>
+                          <option value={30}>30 分钟</option>
+                        </select>
+                      </div>
+
+                      {/* Manual Next button */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          当前轮播索引: {state.slideshow.queue.length > 0 ? `${state.slideshow.currentIndex + 1} / ${state.slideshow.queue.length}` : '0 / 0'}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (state.slideshow.queue.length > 0) {
+                              const nextIndex = (state.slideshow.currentIndex + 1) % state.slideshow.queue.length;
+                              state.changeSlideshow({ currentIndex: nextIndex });
+                              state.changeBackground(state.slideshow.queue[nextIndex], undefined, false);
+                            }
+                          }}
+                          disabled={state.slideshow.queue.length === 0}
+                          className="btn btn-ghost"
+                          style={{ fontSize: '11px', padding: '4px 8px' }}
+                        >
+                          下一张壁纸
+                        </button>
+                      </div>
+
+                      {state.slideshow.queue.length === 0 && (
+                        <div style={{ fontSize: '11px', color: 'var(--danger)', background: 'rgba(239, 68, 68, 0.08)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
+                          请在下方列表中勾选壁纸加入轮播队列。
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                  {PRESET_BACKGROUNDS.map(bg => (
-                    <button
-                      key={bg.id}
-                      onClick={() => state.changeBackground(bg.id)}
+                {/* 2. Wallpaper Preset Selection */}
+                <div>
+                  <h5 style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>预设动态壁纸</h5>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                    {PRESET_BACKGROUNDS.map(bg => {
+                      const isQueued = state.slideshow.queue.includes(bg.id);
+                      const isActive = state.backgroundId === bg.id;
+                      
+                      const toggleSlideshowQueueItem = (bgId: string) => {
+                        const isQueued = state.slideshow.queue.includes(bgId);
+                        let nextQueue = [];
+                        if (isQueued) {
+                          nextQueue = state.slideshow.queue.filter((id: string) => id !== bgId);
+                        } else {
+                          nextQueue = [...state.slideshow.queue, bgId];
+                        }
+                        state.changeSlideshow({ queue: nextQueue });
+                      };
+
+                      return (
+                        <div key={bg.id} style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => {
+                              if (state.slideshow.enabled) {
+                                toggleSlideshowQueueItem(bg.id);
+                              } else {
+                                state.changeBackground(bg.id);
+                              }
+                            }}
+                            style={{
+                              width: '100%',
+                              height: '76px',
+                              borderRadius: '10px',
+                              border: !state.slideshow.enabled && isActive ? '2px solid var(--accent)' : '1px solid rgba(255, 255, 255, 0.08)',
+                              background: bg.image,
+                              backgroundSize: 'cover',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'flex-end',
+                              padding: '8px',
+                              boxShadow: !state.slideshow.enabled && isActive ? '0 0 12px var(--accent-glow)' : 'none',
+                              transition: 'transform 0.15s ease',
+                            }}
+                          >
+                            <span 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontWeight: 600, 
+                                color: 'white', 
+                                background: 'rgba(0, 0, 0, 0.65)', 
+                                padding: '2px 4px', 
+                                borderRadius: '4px',
+                                backdropFilter: 'blur(4px)'
+                              }}
+                            >
+                              {bg.label}
+                            </span>
+                          </button>
+
+                          {/* Checkbox overlay when slideshow is enabled */}
+                          {state.slideshow.enabled && (
+                            <div 
+                              onClick={() => toggleSlideshowQueueItem(bg.id)}
+                              style={{
+                                position: 'absolute',
+                                top: '6px',
+                                right: '6px',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '4px',
+                                background: isQueued ? 'var(--accent)' : 'rgba(0,0,0,0.6)',
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                fontSize: '11px',
+                                color: '#042f44',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              {isQueued && '✓'}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. Custom Backgrounds Section */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h5 style={{ fontSize: '13px', fontWeight: 600 }}>自定义壁纸</h5>
+                    <label className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '11px' }}>
+                      <Upload size={12} />
+                      <span>上传新图片</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleCustomBgUpload} 
+                        style={{ display: 'none' }} 
+                      />
+                    </label>
+                  </div>
+
+                  {/* List of uploaded custom background wallpapers */}
+                  {state.customBackgrounds.length === 0 && (
+                    <div 
                       style={{
-                        height: '76px',
+                        border: '1px dashed rgba(255,255,255,0.1)',
                         borderRadius: '10px',
-                        border: state.backgroundId === bg.id ? '2px solid var(--accent)' : '1px solid rgba(255, 255, 255, 0.08)',
-                        background: bg.image,
-                        backgroundSize: 'cover',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        padding: '8px',
-                        boxShadow: state.backgroundId === bg.id ? '0 0 12px var(--accent-glow)' : 'none',
-                        transition: 'transform 0.15s ease',
+                        padding: '16px',
+                        textAlign: 'center',
+                        fontSize: '11px',
+                        color: 'var(--text-muted)',
+                        background: 'rgba(255,255,255,0.01)'
                       }}
                     >
-                      <span 
-                        style={{ 
-                          fontSize: '11px', 
-                          fontWeight: 600, 
-                          color: 'white', 
-                          background: 'rgba(0, 0, 0, 0.65)', 
-                          padding: '2px 6px', 
-                          borderRadius: '4px',
-                          backdropFilter: 'blur(4px)'
-                        }}
-                      >
-                        {bg.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                      暂无自定义壁纸，点击右上角上传新图片
+                    </div>
+                  )}
 
-                <div 
-                  style={{
-                    border: '1px dashed rgba(255,255,255,0.15)',
-                    borderRadius: '12px',
-                    padding: '20px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '10px',
-                    background: state.backgroundId === 'custom' ? 'rgba(56, 189, 248, 0.03)' : 'rgba(255,255,255,0.01)',
-                  }}
-                >
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                    {state.backgroundId === 'custom' ? '当前正在使用自定义壁纸' : '您可以上传本地图片作为壁纸背景'}
-                  </div>
-                  <label className="btn btn-primary" style={{ padding: '8px 20px', fontSize: '12px' }}>
-                    <Upload size={14} />
-                    <span>上传本地图片</span>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={handleCustomBgUpload} 
-                      style={{ display: 'none' }} 
-                    />
-                  </label>
+                  {state.customBackgrounds.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {state.customBackgrounds.map((bg: CustomBgMetadata) => {
+                        const isQueued = state.slideshow.queue.includes(bg.id);
+                        const isActive = state.backgroundId === bg.id;
+                        const bgUrl = customBgUrls[bg.id] || '';
+
+                        const toggleSlideshowQueueItem = (bgId: string) => {
+                          const isQueued = state.slideshow.queue.includes(bgId);
+                          let nextQueue = [];
+                          if (isQueued) {
+                            nextQueue = state.slideshow.queue.filter((id: string) => id !== bgId);
+                          } else {
+                            nextQueue = [...state.slideshow.queue, bgId];
+                          }
+                          state.changeSlideshow({ queue: nextQueue });
+                        };
+
+                        return (
+                          <div 
+                            key={bg.id} 
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px 12px',
+                              borderRadius: '10px',
+                              background: 'rgba(255, 255, 255, 0.02)',
+                              border: '1px solid rgba(255, 255, 255, 0.06)'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {/* Thumbnail */}
+                              <div 
+                                style={{
+                                  width: '48px',
+                                  height: '32px',
+                                  borderRadius: '6px',
+                                  backgroundImage: bgUrl ? `url("${bgUrl}")` : 'none',
+                                  backgroundColor: 'rgba(255,255,255,0.05)',
+                                  backgroundSize: 'cover',
+                                  backgroundPosition: 'center',
+                                  border: '1px solid rgba(255,255,255,0.1)'
+                                }}
+                              />
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-primary)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {bg.name}
+                                </span>
+                                <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                                  {new Date(bg.addedAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              {/* Add/remove from queue checkbox when slideshow is enabled */}
+                              {state.slideshow.enabled ? (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={isQueued}
+                                    onChange={() => toggleSlideshowQueueItem(bg.id)}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <span>轮播</span>
+                                </label>
+                              ) : (
+                                <button
+                                  onClick={() => state.changeBackground(bg.id)}
+                                  className="btn btn-ghost"
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '2px 6px',
+                                    color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                                    borderColor: isActive ? 'rgba(56, 189, 248, 0.3)' : 'transparent',
+                                    background: isActive ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
+                                    borderRadius: '4px'
+                                  }}
+                                >
+                                  {isActive ? '当前使用' : '使用'}
+                                </button>
+                              )}
+
+                              {/* Delete button */}
+                              <button
+                                onClick={() => {
+                                  if (confirm(`确认要删除此自定义壁纸吗？`)) {
+                                    state.deleteCustomBackground(bg.id);
+                                  }
+                                }}
+                                className="btn btn-ghost"
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '2px 6px',
+                                  color: 'var(--danger)',
+                                  borderRadius: '4px'
+                                }}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

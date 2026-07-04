@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getNativeBridge } from './useNativeBridge';
 import type { TodoItem, Coord, TetrominoType } from '../utils/tetris';
 import { getDeterministicShape, calculatePlacement, applyGravity } from '../utils/tetris';
-import { loadCustomBackgroundBlob, saveCustomBackgroundBlob, dataUrlToBlob } from '../utils/db';
+import { loadCustomBackgroundBlob, saveCustomBackgroundBlob, dataUrlToBlob, idbSet, idbGet, idbDelete } from '../utils/db';
 
 export interface WeatherState {
   effect: 'sunny' | 'rain' | 'snow' | 'cloudy' | 'foggy' | 'hail' | 'off';
@@ -23,6 +23,19 @@ export interface GridState {
   opacity: number;
 }
 
+export interface CustomBgMetadata {
+  id: string;
+  name: string;
+  addedAt: number;
+}
+
+export interface SlideshowState {
+  enabled: boolean;
+  interval: number; // in minutes
+  queue: string[]; // background IDs (presets or custom_*)
+  currentIndex: number;
+}
+
 export interface DailyRecord {
   memo: string;
   todos: TodoItem[];
@@ -37,6 +50,13 @@ export const DEFAULT_GRID: GridState = {
   offsetX: 72,
   offsetY: -6,
   opacity: 0.24,
+};
+
+export const DEFAULT_SLIDESHOW: SlideshowState = {
+  enabled: false,
+  interval: 5,
+  queue: ['coastline', 'sunset', 'forest'],
+  currentIndex: 0,
 };
 
 export const DEFAULT_WEATHER: WeatherState = {
@@ -76,6 +96,8 @@ export const STORAGE_KEYS = {
   selectedDateKey: 'ivory.selectedDateKey',
   calendarMonthKey: 'ivory.calendarMonthKey',
   snapshot: 'ivory.snapshot',
+  customBackgrounds: 'ivory.customBackgrounds',
+  slideshow: 'ivory.slideshow',
 };
 
 // Date utilities
@@ -151,6 +173,9 @@ export function useWallpaperState() {
   
   const [dailyRecords, setDailyRecords] = useState<Record<string, DailyRecord>>(() => readStorage(STORAGE_KEYS.dailyRecords, {}));
 
+  const [customBackgrounds, setCustomBackgrounds] = useState<CustomBgMetadata[]>(() => readStorage(STORAGE_KEYS.customBackgrounds, []));
+  const [slideshow, setSlideshow] = useState<SlideshowState>(() => readStorage(STORAGE_KEYS.slideshow, DEFAULT_SLIDESHOW));
+
   // Active day todos
   const currentRecord = dailyRecords[selectedDateKey] || { memo: '', todos: [] };
   const todos = currentRecord.todos || [];
@@ -158,9 +183,14 @@ export function useWallpaperState() {
   // Ref to prevent infinite loops on updates
   const syncTimeoutRef = useRef<number | null>(null);
 
-  // 2. Load custom background from IndexedDB when backgroundId is custom
-  const loadCustomBg = useCallback(async (active: boolean) => {
-    const blob = await loadCustomBackgroundBlob();
+  // 2. Load custom background from IndexedDB when backgroundId is custom or starts with custom_
+  const loadCustomBg = useCallback(async (activeId: string, active: boolean) => {
+    let blob: Blob | null = null;
+    if (activeId === 'custom') {
+      blob = await loadCustomBackgroundBlob();
+    } else if (activeId.startsWith('custom_')) {
+      blob = await idbGet(`custom-bg-${activeId}`);
+    }
     if (blob && active) {
       const url = URL.createObjectURL(blob);
       setBackgroundCustomUrl(prev => {
@@ -174,8 +204,8 @@ export function useWallpaperState() {
 
   useEffect(() => {
     let active = true;
-    if (backgroundId === 'custom') {
-      loadCustomBg(active);
+    if (backgroundId === 'custom' || backgroundId.startsWith('custom_')) {
+      loadCustomBg(backgroundId, active);
     }
     return () => {
       active = false;
@@ -223,7 +253,9 @@ export function useWallpaperState() {
     g: GridState,
     dateKey: string,
     monthKey: string,
-    records: Record<string, DailyRecord>
+    records: Record<string, DailyRecord>,
+    customBgs?: CustomBgMetadata[],
+    ssState?: SlideshowState
   ) => {
     saveStorage(STORAGE_KEYS.background, bgId);
     saveStorage(STORAGE_KEYS.customBackgroundFile, bgFile);
@@ -234,9 +266,14 @@ export function useWallpaperState() {
     saveStorage(STORAGE_KEYS.calendarMonthKey, monthKey);
     saveStorage(STORAGE_KEYS.dailyRecords, records);
 
+    const activeBgs = customBgs !== undefined ? customBgs : customBackgrounds;
+    const activeSs = ssState !== undefined ? ssState : slideshow;
+    saveStorage(STORAGE_KEYS.customBackgrounds, activeBgs);
+    saveStorage(STORAGE_KEYS.slideshow, activeSs);
+
     // Save full snapshot for host backup
     const snapshot = {
-      version: 3,
+      version: 4,
       savedAt: new Date().toISOString(),
       backgroundId: bgId,
       backgroundCustomFile: bgFile,
@@ -245,9 +282,11 @@ export function useWallpaperState() {
       selectedDateKey: dateKey,
       calendarMonthKey: monthKey,
       dailyRecords: records,
+      customBackgrounds: activeBgs,
+      slideshow: activeSs,
     };
     saveStorage(STORAGE_KEYS.snapshot, snapshot);
-  }, [viewContext.monitorIndex]);
+  }, [viewContext.monitorIndex, customBackgrounds, slideshow]);
 
   // 5. System Wallpaper Sync (Asynchronous Canvas Render)
   const syncSystemWallpaper = useCallback(async (bgId: string, bgFile: string, bgUrl: string) => {
@@ -260,7 +299,7 @@ export function useWallpaperState() {
 
     // Resolve current background source URL
     let sourceUrl = '';
-    if (bgId === 'custom' && bgUrl) {
+    if ((bgId === 'custom' || bgId.startsWith('custom_')) && bgUrl) {
       sourceUrl = bgUrl;
     } else {
       const preset = PRESET_BACKGROUNDS.find(p => p.id === bgId) || PRESET_BACKGROUNDS[0];
@@ -322,7 +361,18 @@ export function useWallpaperState() {
 
   // 6. Controller Functions for Components
 
-  const changeBackground = useCallback(async (id: string, fileObj?: File) => {
+  const changeBackground = useCallback(async (id: string, fileObj?: File, isUserInitiated = true) => {
+    if (isUserInitiated) {
+      setSlideshow(prev => {
+        if (prev.enabled) {
+          const updated = { ...prev, enabled: false };
+          saveStorage(STORAGE_KEYS.slideshow, updated);
+          return updated;
+        }
+        return prev;
+      });
+    }
+
     if (id === 'custom' && fileObj) {
       try {
         await saveCustomBackgroundBlob(fileObj);
@@ -352,6 +402,22 @@ export function useWallpaperState() {
           localStorage.setItem("ivory.background.custom.updatedAt", String(Date.now()));
         };
         reader.readAsDataURL(fileObj);
+      }
+    } else if (id.startsWith('custom_')) {
+      const blob = await idbGet(`custom-bg-${id}`);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        if (backgroundCustomUrl && backgroundCustomUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(backgroundCustomUrl);
+        }
+        setBackgroundCustomUrl(url);
+        setBackgroundCustomFile('');
+        setBackgroundId(id);
+        persistState(id, '', weather, grid, selectedDateKey, calendarMonthKey, dailyRecords);
+      } else {
+        console.warn('Custom background blob not found for ID:', id);
+        setBackgroundId('coastline');
+        persistState('coastline', backgroundCustomFile, weather, grid, selectedDateKey, calendarMonthKey, dailyRecords);
       }
     } else {
       setBackgroundId(id);
@@ -550,6 +616,8 @@ export function useWallpaperState() {
     let nextDateKey = selectedDateKey;
     let nextMonthKey = calendarMonthKey;
     let nextRecords = dailyRecords;
+    let nextCustomBgs = customBackgrounds;
+    let nextSlideshow = slideshow;
 
     if (config.grid) {
       nextGrid = { ...DEFAULT_GRID, ...config.grid };
@@ -629,9 +697,17 @@ export function useWallpaperState() {
       nextRecords = normalizedRecords;
       setDailyRecords(nextRecords);
     }
+    if (config.customBackgrounds) {
+      nextCustomBgs = config.customBackgrounds;
+      setCustomBackgrounds(nextCustomBgs);
+    }
+    if (config.slideshow) {
+      nextSlideshow = { ...DEFAULT_SLIDESHOW, ...config.slideshow };
+      setSlideshow(nextSlideshow);
+    }
 
-    persistState(nextBgId, nextBgFile, nextWeather, nextGrid, nextDateKey, nextMonthKey, nextRecords);
-  }, [backgroundId, backgroundCustomFile, weather, grid, selectedDateKey, calendarMonthKey, dailyRecords, persistState]);
+    persistState(nextBgId, nextBgFile, nextWeather, nextGrid, nextDateKey, nextMonthKey, nextRecords, nextCustomBgs, nextSlideshow);
+  }, [backgroundId, backgroundCustomFile, weather, grid, selectedDateKey, calendarMonthKey, dailyRecords, customBackgrounds, slideshow, persistState]);
 
   // 7. Passive synchronization across WebView windows via the "storage" event
   useEffect(() => {
@@ -652,12 +728,16 @@ export function useWallpaperState() {
           if (localStorage.getItem(monitorKey) === null) {
             setGrid(val ?? DEFAULT_GRID);
           }
+        } else if (e.key === STORAGE_KEYS.customBackgrounds) {
+          setCustomBackgrounds(val ?? []);
+        } else if (e.key === STORAGE_KEYS.slideshow) {
+          setSlideshow(val ?? DEFAULT_SLIDESHOW);
         } else if (e.key === STORAGE_KEYS.dailyRecords) {
           setDailyRecords(val ?? {});
         } else if (e.key === STORAGE_KEYS.selectedDateKey) {
           setSelectedDateKey(val ?? getTodayKey());
         } else if (e.key === "ivory.background.custom.updatedAt") {
-          loadCustomBg(true);
+          loadCustomBg(backgroundId, true);
         }
       } catch (err) {
         console.warn('Passive state sync failed on storage event:', err);
@@ -668,7 +748,7 @@ export function useWallpaperState() {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [loadCustomBg, viewContext.monitorIndex]);
+  }, [loadCustomBg, viewContext.monitorIndex, backgroundId]);
 
   // 8. Fetch recovered data on mount if available via native bridge
   useEffect(() => {
@@ -695,6 +775,98 @@ export function useWallpaperState() {
     };
   }, [nativeBridge, viewContext.isEditor, importConfig]);
 
+  // Slideshow controller functions
+  const uploadCustomBackground = useCallback(async (file: File) => {
+    try {
+      const id = `custom_${Date.now()}`;
+      await idbSet(`custom-bg-${id}`, file);
+      
+      const newBg: CustomBgMetadata = {
+        id,
+        name: file.name,
+        addedAt: Date.now()
+      };
+      
+      let nextCustomBgs: CustomBgMetadata[] = [];
+      setCustomBackgrounds(prev => {
+        nextCustomBgs = [...prev, newBg];
+        saveStorage(STORAGE_KEYS.customBackgrounds, nextCustomBgs);
+        return nextCustomBgs;
+      });
+
+      // Automatically set as active background
+      await changeBackground(id, undefined, true);
+    } catch (err) {
+      console.error('Failed to upload custom background:', err);
+    }
+  }, [changeBackground]);
+
+  const deleteCustomBackground = useCallback(async (id: string) => {
+    try {
+      await idbDelete(`custom-bg-${id}`);
+      
+      let nextCustomBgs: CustomBgMetadata[] = [];
+      setCustomBackgrounds(prev => {
+        nextCustomBgs = prev.filter(bg => bg.id !== id);
+        saveStorage(STORAGE_KEYS.customBackgrounds, nextCustomBgs);
+        return nextCustomBgs;
+      });
+
+      // Remove from slideshow queue
+      let nextSlideshow = slideshow;
+      setSlideshow(prev => {
+        const nextQueue = prev.queue.filter(q => q !== id);
+        nextSlideshow = { ...prev, queue: nextQueue };
+        saveStorage(STORAGE_KEYS.slideshow, nextSlideshow);
+        return nextSlideshow;
+      });
+
+      // If active background was this one, reset to coastline preset
+      if (backgroundId === id) {
+        await changeBackground('coastline', undefined, true);
+      }
+    } catch (err) {
+      console.error('Failed to delete custom background:', err);
+    }
+  }, [backgroundId, changeBackground, slideshow]);
+
+  const changeSlideshow = useCallback((newSlideshow: Partial<SlideshowState>) => {
+    setSlideshow(prev => {
+      const next = { ...prev, ...newSlideshow };
+      saveStorage(STORAGE_KEYS.slideshow, next);
+      return next;
+    });
+  }, []);
+
+  // Slideshow timer effect (leader-only)
+  useEffect(() => {
+    if (!slideshow.enabled || slideshow.queue.length === 0) return;
+
+    const isLivelyOrDebug = !window.location.search;
+    const isTimerLeader = viewContext.monitorIndex === 0 && (viewContext.role === 'wallpaper' || isLivelyOrDebug);
+    if (!isTimerLeader) return;
+
+    const intervalMs = slideshow.interval * 60 * 1000;
+    
+    const triggerNext = () => {
+      setSlideshow(prev => {
+        if (!prev.enabled || prev.queue.length === 0) return prev;
+        const nextIndex = (prev.currentIndex + 1) % prev.queue.length;
+        const nextBgId = prev.queue[nextIndex];
+        
+        // Change background
+        changeBackground(nextBgId, undefined, false);
+        
+        const updated = { ...prev, currentIndex: nextIndex };
+        saveStorage(STORAGE_KEYS.slideshow, updated);
+        return updated;
+      });
+    };
+
+    const timer = setInterval(triggerNext, intervalMs);
+    return () => clearInterval(timer);
+  }, [slideshow.enabled, slideshow.interval, slideshow.queue, viewContext.monitorIndex, viewContext.role, changeBackground]);
+
   return {
     backgroundId,
     backgroundCustomFile,
@@ -706,6 +878,8 @@ export function useWallpaperState() {
     dailyRecords,
     todos,
     currentRecord,
+    customBackgrounds,
+    slideshow,
     
     changeBackground,
     changeWeather,
@@ -721,5 +895,8 @@ export function useWallpaperState() {
     importConfig,
     nativeBridge,
     viewContext,
+    uploadCustomBackground,
+    deleteCustomBackground,
+    changeSlideshow,
   };
 }
