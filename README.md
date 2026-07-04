@@ -1,45 +1,88 @@
 # Ivory Wallpaper
 
-`Ivory Wallpaper` 是一个基于 `Rust + Tao + Wry + 静态前端` 的 Windows 动态壁纸运行时项目。
+English | [简体中文](README.zh-CN.md)
 
-它当前的核心目标不是“生成给别人再打包的网页模板”，而是直接在 Windows 上把 `web/index.html` 作为壁纸内容运行起来，并解决下面这些真实问题：
+`Ivory Wallpaper` is a Windows dynamic wallpaper runtime project based on `Rust + Tao + Wry + Static Frontend`.
 
-- 直接挂载到 `WorkerW` 桌面层，保留原生桌面图标。
-- 多显示器下为每块屏幕创建独立壁纸窗口，而不是简单横向拼成一个超宽页面。
-- 使用 `F8` 在“只读壁纸层”和“可交互编辑层”之间切换，避免壁纸状态影响桌面点击。
-- 在壁纸里提供时间、背景、网格校准、Markdown 备忘录、Todo、按日记录和日历查看。
+Its core goal is to run `web/index.html` directly as wallpaper content on Windows, providing a perfect multi-monitor, interactive widgets dashboard.
 
-## 当前架构
+---
 
-项目分成两部分：
+## ⚡ Quick Start
+
+### 1. Prerequisites
+Make sure your Windows system has the following installed:
+* [Rust stable toolchain](https://www.rust-lang.org/)
+* [Node.js (LTS)](https://nodejs.org/)
+
+### 2. Build the Frontend
+```powershell
+cd frontend
+npm install
+npm run build
+cd ..
+```
+This compiles the React frontend project and outputs the assets to the `web/` directory.
+
+### 3. Build and Run the Rust Runtime
+* **Build the Release binary**:
+  ```powershell
+  cargo build --release
+  ```
+* **Run in Desktop Wallpaper mode (`workerw`)**:
+  ```powershell
+  .\target\release\ivory_wallpaper_runtime.exe --mode workerw --html .\web\index.html
+  ```
+
+### 4. Background Execution and Stopping
+* In `workerw` wallpaper mode, the application automatically **hides its console window** upon launch and runs silently in the background.
+* To stop or restart the application, run the following in PowerShell:
+  ```powershell
+  Stop-Process -Name ivory_wallpaper_runtime -Force
+  ```
+
+### 5. Setting up Autostart on Boot
+* Press `F8` on your desktop to activate the interactive edit layer (widgets are only clickable in edit mode).
+* Click the **Settings** (gear) icon in the top-right corner.
+* Switch to the **Startup** tab.
+* Toggle the switch to enable launch at startup. The runtime will automatically register the executable path and HTML path to the Windows Registry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`).
+
+---
+
+## Architecture
+
+The project consists of two parts:
 
 1. `Rust runtime`
-   负责创建窗口、加载网页、挂到 `WorkerW`、枚举多显示器，以及在 `F8` 时显示覆盖编辑窗口。
+   Responsible for creating windows, loading web views, hooking into `WorkerW`, enumerating multiple monitors, and displaying the overlay edit window on `F8`.
 
-2. 前端静态页面
-   由 `web/index.html`、`web/css/app.css`、`web/css/**/*.css`、`web/js/*.js` 组成，负责壁纸 UI、数据存储、日历、备忘录和 Todo 逻辑。
+2. Frontend Static Pages
+   Located in `web/index.html`, `web/css/`, and `web/js/`. Responsible for the wallpaper UI, data storage, calendar, memos, Todo lists, and wallpaper slideshows.
 
-### 运行模式
+### Running Modes
 
-- `lively`
-  普通应用窗口模式，适合交给 Lively 的 Application Wallpaper 使用。
+* `lively`
+  Standard application window mode, suitable for use with Lively Wallpaper (Application Wallpaper mode).
 
-- `workerw`
-  直接把窗口附着到 Windows 桌面 `WorkerW` 层。
-  同时会为每块显示器再创建一个隐藏的编辑覆盖层窗口，按 `F8` 时显示。
+* `workerw`
+  Attaches the window directly to the Windows desktop `WorkerW` layer.
+  Also creates a hidden edit overlay window for each monitor, shown when pressing `F8`.
 
-- `fullscreen`
-  调试用全屏模式。
+* `fullscreen`
+  Fullscreen mode for debugging.
 
-## 目录说明
+## Directory Structure
 
 ```text
 ivory_wallpaper/
 ├─ Cargo.toml
 ├─ Cargo.lock
 ├─ README.md
+├─ README.zh-CN.md
 ├─ web/
 │  ├─ index.html
+│  ├─ assets/
+│  │  └─ index-*.js (Compiled frontend JS bundle from Vite)
 │  ├─ css/
 │  │  ├─ app.css
 │  │  ├─ legacy.css
@@ -56,169 +99,135 @@ ivory_wallpaper/
 │     ├─ weather-renderer.js
 │     └─ script.js
 └─ src/
-   └─ main.rs
+   ├─ main.rs
+   └─ startup.rs
 ```
 
-### 关键文件
+### Key Files
 
-- `src/main.rs`
-  Rust 运行时入口。处理参数解析、窗口创建、`WorkerW` 挂载、多屏独立窗口、`F8` 热键切换。
+* `src/main.rs`
+  Rust runtime entry point. Handles argument parsing, window creation, `WorkerW` hook, multi-monitor window spawning, and the `F8` hotkey.
 
-- `web/index.html`
-  壁纸页面结构。
+* `web/index.html`
+  Wallpaper HTML page structure.
 
-- `web/css/app.css`
-  前端样式入口。按 `foundations`、`components`、`features` 分层导入，`legacy.css` 保留原有样式作为兼容基线。
+* `web/css/app.css`
+  CSS entry point importing stylesheets from `foundations`, `components`, and `features`. `legacy.css` is retained as a compatibility fallback.
 
-- `web/js/*.js`
-  前端状态管理、持久化、按日记录、Todo deadline、自动顺延、导入导出等逻辑。
+* `web/js/*.js`
+  Frontend state management, persistence, daily memos, Todo deadlines, automatic rollover, and import/export logic.
 
-## 已实现功能
+## Implemented Features
 
-### 壁纸与窗口
+### Wallpaper & Windowing
 
-- 支持 `workerw` 壁纸模式。
-- 支持多显示器独立壁纸窗口。
-- 自动为每块屏幕创建对应的编辑覆盖层窗口。
-- `F8` 切换编辑模式。
-- 壁纸态默认只读，编辑态才显示交互控件。
-- 处理了桌面边缘缝隙和原生壁纸漏边问题。
+* Support for `workerw` desktop wallpaper mode.
+* Support for independent wallpaper windows on multi-monitor setups.
+* Automatic spawning of edit overlays for each display.
+* `F8` hotkey to toggle edit mode.
+* Read-only by default in wallpaper state; controls are interactive only in edit state.
+* Fixed gaps at the screen boundaries and native wallpaper leakage issues.
+* **Isolated Multi-Monitor Grid Scaling**: Supports independent scaling configs for large screens (e.g. 2560x1440) and small screens, fixing absolute proportions warping across dual screens.
 
-### UI 与内容
+### UI & Widgets
 
-- 顶部时间和日期显示。
-- 多套内置背景，支持上传自定义图片。
-- 桌面图标网格校准与缩放适配。
-- Markdown 备忘录，支持编辑与预览。
-- Todo 列表：
-  - 勾选完成
-  - 删除
-  - 编辑
-  - 设置 deadline
-  - 按 deadline 临近程度排序
-- 日历查看：
-  - 按天保存 memo / todo
-  - 区分已修改日期、未修改日期、今天、当前选中日期
+* Current time and date display at the top.
+* Multiple built-in dynamic gradient backgrounds.
+* **Wallpaper Slideshow**: Supports uploading multiple custom local images/GIFs, deleting them, and scheduling automated slideshow rotations (1, 3, 5, 10, 15, 30 minutes).
+* Grid alignment and scaling adaptation for desktop icons.
+* Markdown Memo widget supporting live editing and preview.
+* Todo List:
+  * Complete checkbox
+  * Delete/Edit
+  * Set deadline
+  * Sort by deadline proximity
+* Calendar View:
+  * Save memo / todo per day
+  * Highlights modified dates, today, and selected dates
 
-### 数据持久化
+### Data Persistence
 
-- 固定配置目录
-  从本版本开始，Windows 上统一使用固定目录保存 WebView2 配置、`localStorage` 和 `IndexedDB`：
+* Fixed Configuration Directory
+  WebView2 configurations, `localStorage`, and `IndexedDB` data are saved in a unified directory on Windows:
 
   ```text
   C:\ProgramData\IvoryWallpaper\WebView2
   ```
 
-  这样无论是 `cargo run`、`target\debug`、`target\release`、开机自启，还是手动指定 HTML 路径，都会使用同一份前端配置数据。首次启动时，如果固定目录为空，运行时会尝试从旧目录迁移现有 WebView2 数据：
+  This ensures that running via `cargo run`, release binaries, registry startup, or launching a manually specified HTML file all share the same frontend state. On the first launch, if this directory is empty, the runtime attempts to migrate existing WebView2 profiles from:
 
   - `%LOCALAPPDATA%\IvoryWallpaper\WebView2`
   - `target\release\ivory_wallpaper_runtime.exe.WebView2`
   - `target\debug\ivory_wallpaper_runtime.exe.WebView2`
 
-  可选的一次性恢复配置文件位置：
+  You can also supply a one-time JSON backup file for recovery:
 
   ```text
   C:\ProgramData\IvoryWallpaper\config.json
   ```
 
-  该文件用于在新 profile 首次启动时写入必要的恢复项，例如 `backgroundId` 和 `customBackgroundFile`。同一个 `restoreId` 只会应用一次，避免之后每次启动覆盖用户在页面内的新修改。
+* `localStorage`
+  Used for background selections, grid parameters, daily records, selected date keys, and layout snapshots.
 
-- `localStorage`
-  用于保存背景选择、网格参数、每日记录、选中日期、快照等。
+* `IndexedDB`
+  Used for storing custom background files to bypass the 5MB `localStorage` limit.
 
-- `IndexedDB`
-  用于保存自定义背景图片，避免大图塞进 `localStorage`。
+* Automatic Snapshot Backup:
+  - Active background ID
+  - Custom background file paths
+  - Grid configuration parameters
+  - Daily memo / todo lists
+  - Selected date key
 
-- 自动快照保存：
-  - 背景
-  - 自定义背景图片引用
-  - 网格参数
-  - 每日 memo / todo
-  - 当前选中日期
+### Daily Rollover Logic
 
-### 每日记录逻辑
+* Memos and Todos are tracked per-date.
+* When the application is launched for the first time on a new day:
+  * Copies the memo from the latest active recorded day.
+  * Rolls over uncompleted Todos to today.
+* Duplication prevention safeguards are active to prevent multiple screens from initiating rollover concurrently.
 
-- 备忘录和 Todo 现在按日期保存。
-- 若检测到“今天第一次启动”且今天还没有记录：
-  - 会从最近一个早于今天的记录日复制 memo
-  - 并把未完成 Todo 顺延到今天
-- 为避免 `workerw` 多窗口并发重复顺延，已加防重逻辑。
+## Desktop Hook Mechanism (`workerw`)
 
-## 如何运行
+In `workerw` mode, there are two types of windows running:
 
-### 1. 开发构建
+1. Wallpaper Windows
+   Attached directly behind desktop icons, showing the background.
 
-```powershell
-cargo build
-```
+2. Edit Overlay Windows
+   Normally hidden, displayed when pressing `F8`.
+   Positioned directly above the desktop to capture click events for buttons, inputs, and modals.
 
-### 2. 普通窗口运行
+This dual-layer design is key to providing both dynamic wallpapers and fully interactive widgets.
 
-```powershell
-cargo run -- --mode lively .\web\index.html
-```
+## Keyboard Shortcuts
 
-### 3. 直接挂到桌面壁纸层
+* `F8`
+  Toggles the edit overlay visibility in `workerw` mode.
 
-```powershell
-cargo run -- --mode workerw .\web\index.html
-```
+* `Esc`
+  Closes active modals inside the frontend web view.
 
-如果省略 HTML 路径，程序会尝试：
+## Import/Export Config
 
-- 可执行文件所在目录的 `web/index.html`
-- 当前工作目录的 `web/index.html`
-- 兼容旧布局时，可执行文件所在目录或当前工作目录的 `index.html`
+You can export and import JSON configurations using the buttons in the settings panel:
 
-### 4. 调试用全屏模式
+* Background settings
+* Grid parameters
+* Selected date key
+* Daily memo/todo logs
+* Custom uploaded background image blobs
 
-```powershell
-cargo run -- --mode fullscreen .\web\index.html
-```
+## Development
 
-## `workerw` 模式的实际行为
+### Requirements
 
-`workerw` 模式下不是只有一个窗口，而是两类窗口同时存在：
+* Windows OS
+* Rust stable toolchain
 
-1. 壁纸窗口
-   直接挂到桌面层，负责真正显示在桌面上的内容。
+The `workerw` wallpaper mounting is Windows-exclusive. On other operating systems, you can debug in `lively` mode.
 
-2. 编辑覆盖窗口
-   默认隐藏，按 `F8` 才显示。
-   这些窗口位于每块屏幕上方，用于让按钮、输入框、弹窗等可以正常交互。
-
-这也是当前项目能同时满足“像真实壁纸一样挂在桌面上”和“还可以编辑内容”的关键。
-
-## 快捷键
-
-- `F8`
-  在 `workerw` 模式下切换编辑覆盖层显示状态。
-
-- `Esc`
-  关闭前端页面中的弹窗。
-
-## 配置导入导出
-
-页面右上角支持保存 / 加载 JSON 配置。
-
-导出的配置包含：
-
-- 背景设置
-- 网格参数
-- 当前选中日期
-- 每日 memo / todo 数据
-- 自定义背景图片数据
-
-## 开发说明
-
-### 环境要求
-
-- Windows
-- Rust stable
-
-当前 `workerw` 逻辑是 Windows 专用能力；非 Windows 下只能用普通窗口方式调试。
-
-### 常用命令
+### Common Commands
 
 ```powershell
 cargo check
@@ -227,30 +236,28 @@ cargo run -- --mode lively .\web\index.html
 cargo run -- --mode workerw .\web\index.html
 ```
 
-### 前端调试建议
+### Frontend Debugging Tips
 
-- 先用 `lively` 或 `fullscreen` 模式调样式和交互。
-- 确认功能后再切回 `workerw` 检查桌面态效果。
-- 涉及只读壁纸态 / 编辑态差异时，需要分别验证：
+* Use `lively` or `fullscreen` modes to design UI layouts and test components.
+* Once the functionality is validated, test in `workerw` to confirm correct desktop mounting.
+* Test differences between read-only wallpaper states and edit states:
   - `ivoryWindowRole=wallpaper`
   - `ivoryWindowRole=editor`
 
-## 当前已知限制
+## Current Limitations
 
-- Todo 的“编辑”目前使用浏览器 `prompt`，还不是内联编辑。
-- deadline 使用原生 `datetime-local` 控件，样式可定制范围受 WebView 内核限制。
-- `workerw` 模式依赖 Windows 桌面内部窗口层级，系统版本差异可能影响兼容性。
-- 自定义背景导出为 JSON 时，如果图片很大，导出文件也会明显变大。
+* Todo edits currently use the browser's native `prompt` dialog instead of inline edits.
+* Deadlines use the native `datetime-local` input control, which has browser-restricted styling.
+* `workerw` mode hooks into deep Windows API internals; compatibility may vary across OS versions.
+* Large custom background images will increase the exported JSON backup size.
 
-## 下一步可以继续做的方向
+## Roadmap
 
-- Todo 内联编辑，而不是 `prompt`
-- 更细的 deadline 视觉提醒
-- 更多背景主题和动态效果
-- 编辑模式提示条 / 状态提示
-- 更完善的导入导出版本兼容
-- 更系统的多屏配置管理
+* Inline editing for Todos.
+* More visual urgency cues for deadlines.
+* Enhanced import/export backward compatibility.
+* Streamlined multi-monitor configuration profiles.
 
 ## License
 
-当前仓库未单独声明开源许可证；如需公开发布，建议补充 `LICENSE` 文件。
+No explicit license is provided in this repository. Adding a `LICENSE` file is recommended prior to public release.
