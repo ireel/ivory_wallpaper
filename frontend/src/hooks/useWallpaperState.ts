@@ -31,11 +31,11 @@ export interface DailyRecord {
 
 export const DEFAULT_GRID: GridState = {
   baseWidth: 2560,
-  baseHeight: 1600,
+  baseHeight: 1440,
   cellW: 77,
-  cellH: 98,
+  cellH: 88,
   offsetX: 72,
-  offsetY: -7,
+  offsetY: -6,
   opacity: 0.24,
 };
 
@@ -135,7 +135,16 @@ export function useWallpaperState() {
   const [backgroundCustomUrl, setBackgroundCustomUrl] = useState<string>('');
   
   const [weather, setWeather] = useState<WeatherState>(() => readStorage(STORAGE_KEYS.weather, DEFAULT_WEATHER));
-  const [grid, setGrid] = useState<GridState>(() => readStorage(STORAGE_KEYS.grid, DEFAULT_GRID));
+  const [grid, setGrid] = useState<GridState>(() => {
+    const monitorGridKey = `${STORAGE_KEYS.grid}.${viewContext.monitorIndex}`;
+    const localVal = localStorage.getItem(monitorGridKey);
+    if (localVal !== null) {
+      try {
+        return JSON.parse(localVal);
+      } catch {}
+    }
+    return readStorage(STORAGE_KEYS.grid, DEFAULT_GRID);
+  });
   
   const [selectedDateKey, setSelectedDateKey] = useState<string>(() => readStorage(STORAGE_KEYS.selectedDateKey, getTodayKey()));
   const [calendarMonthKey, setCalendarMonthKey] = useState<string>(() => readStorage(STORAGE_KEYS.calendarMonthKey, getMonthKey(getTodayKey())));
@@ -220,6 +229,7 @@ export function useWallpaperState() {
     saveStorage(STORAGE_KEYS.customBackgroundFile, bgFile);
     saveStorage(STORAGE_KEYS.weather, w);
     saveStorage(STORAGE_KEYS.grid, g);
+    saveStorage(`${STORAGE_KEYS.grid}.${viewContext.monitorIndex}`, g);
     saveStorage(STORAGE_KEYS.selectedDateKey, dateKey);
     saveStorage(STORAGE_KEYS.calendarMonthKey, monthKey);
     saveStorage(STORAGE_KEYS.dailyRecords, records);
@@ -237,7 +247,7 @@ export function useWallpaperState() {
       dailyRecords: records,
     };
     saveStorage(STORAGE_KEYS.snapshot, snapshot);
-  }, []);
+  }, [viewContext.monitorIndex]);
 
   // 5. System Wallpaper Sync (Asynchronous Canvas Render)
   const syncSystemWallpaper = useCallback(async (bgId: string, bgFile: string, bgUrl: string) => {
@@ -635,8 +645,13 @@ export function useWallpaperState() {
           setBackgroundCustomFile(val ?? '');
         } else if (e.key === STORAGE_KEYS.weather) {
           setWeather(val ?? DEFAULT_WEATHER);
-        } else if (e.key === STORAGE_KEYS.grid) {
+        } else if (e.key === `${STORAGE_KEYS.grid}.${viewContext.monitorIndex}`) {
           setGrid(val ?? DEFAULT_GRID);
+        } else if (e.key === STORAGE_KEYS.grid) {
+          const monitorKey = `${STORAGE_KEYS.grid}.${viewContext.monitorIndex}`;
+          if (localStorage.getItem(monitorKey) === null) {
+            setGrid(val ?? DEFAULT_GRID);
+          }
         } else if (e.key === STORAGE_KEYS.dailyRecords) {
           setDailyRecords(val ?? {});
         } else if (e.key === STORAGE_KEYS.selectedDateKey) {
@@ -653,7 +668,7 @@ export function useWallpaperState() {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [loadCustomBg]);
+  }, [loadCustomBg, viewContext.monitorIndex]);
 
   // 8. Fetch recovered data on mount if available via native bridge
   useEffect(() => {
