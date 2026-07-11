@@ -95,6 +95,7 @@ export const STORAGE_KEYS = {
   dailyRecords: 'ivory.dailyRecords',
   selectedDateKey: 'ivory.selectedDateKey',
   calendarMonthKey: 'ivory.calendarMonthKey',
+  lastLaunchDate: 'ivory.lastLaunchDate',
   snapshot: 'ivory.snapshot',
   customBackgrounds: 'ivory.customBackgrounds',
   slideshow: 'ivory.slideshow',
@@ -124,6 +125,77 @@ function saveStorage(key: string, value: any) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+interface InitialDailyState {
+  selectedDateKey: string;
+  calendarMonthKey: string;
+  dailyRecords: Record<string, DailyRecord>;
+}
+
+function createCarryOverRecord(source: DailyRecord): DailyRecord | null {
+  const activeTodos = (Array.isArray(source.todos) ? source.todos : []).filter(todo => !todo.completed);
+  const placedCoords: Coord[] = [];
+  const todos = activeTodos.map(todo => {
+    const shape = todo.shape || getDeterministicShape(todo.text, todo.deadline);
+    const nextCoords = calculatePlacement(shape, placedCoords);
+    placedCoords.push(...nextCoords);
+    return {
+      ...todo,
+      id: `todo_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
+      completed: false,
+      shape,
+      placedCoords: nextCoords,
+    };
+  });
+
+  const memo = String(source.memo || '');
+  if (!memo.trim() && todos.length === 0) return null;
+
+  return {
+    memo,
+    todos,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function buildInitialDailyState(): InitialDailyState {
+  const todayKey = getTodayKey();
+  const storedRecords = readStorage<Record<string, DailyRecord>>(STORAGE_KEYS.dailyRecords, {});
+  const dailyRecords = storedRecords && typeof storedRecords === 'object' && !Array.isArray(storedRecords)
+    ? { ...storedRecords }
+    : {};
+  const lastLaunchDate = readStorage<string | null>(STORAGE_KEYS.lastLaunchDate, null);
+
+  if (lastLaunchDate !== todayKey) {
+    if (!dailyRecords[todayKey]) {
+      const sourceDateKey = Object.keys(dailyRecords)
+        .filter(dateKey => dateKey < todayKey)
+        .sort((a, b) => b.localeCompare(a))
+        .find(dateKey => {
+          const record = dailyRecords[dateKey];
+          return Boolean(record && (record.updatedAt || String(record.memo || '').trim() || record.todos?.length));
+        });
+      const carriedRecord = sourceDateKey ? createCarryOverRecord(dailyRecords[sourceDateKey]) : null;
+      if (carriedRecord) dailyRecords[todayKey] = carriedRecord;
+    }
+
+    // localStorage writes are synchronous, so other WebViews observe the completed rollover.
+    saveStorage(STORAGE_KEYS.dailyRecords, dailyRecords);
+    saveStorage(STORAGE_KEYS.selectedDateKey, todayKey);
+    saveStorage(STORAGE_KEYS.calendarMonthKey, getMonthKey(todayKey));
+    saveStorage(STORAGE_KEYS.lastLaunchDate, todayKey);
+  }
+
+  return {
+    selectedDateKey: lastLaunchDate === todayKey
+      ? readStorage(STORAGE_KEYS.selectedDateKey, todayKey)
+      : todayKey,
+    calendarMonthKey: lastLaunchDate === todayKey
+      ? readStorage(STORAGE_KEYS.calendarMonthKey, getMonthKey(todayKey))
+      : getMonthKey(todayKey),
+    dailyRecords,
+  };
+}
+
 export interface ViewContext {
   role: 'wallpaper' | 'editor';
   isEditor: boolean;
@@ -143,6 +215,7 @@ export function readViewContext(): ViewContext {
 export function useWallpaperState() {
   const nativeBridge = getNativeBridge();
   const [viewContext] = useState<ViewContext>(() => readViewContext());
+  const [initialDailyState] = useState<InitialDailyState>(() => buildInitialDailyState());
 
   // Apply body classes for CSS styling corresponding to window role
   useEffect(() => {
@@ -168,10 +241,10 @@ export function useWallpaperState() {
     return readStorage(STORAGE_KEYS.grid, DEFAULT_GRID);
   });
   
-  const [selectedDateKey, setSelectedDateKey] = useState<string>(() => readStorage(STORAGE_KEYS.selectedDateKey, getTodayKey()));
-  const [calendarMonthKey, setCalendarMonthKey] = useState<string>(() => readStorage(STORAGE_KEYS.calendarMonthKey, getMonthKey(getTodayKey())));
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(initialDailyState.selectedDateKey);
+  const [calendarMonthKey, setCalendarMonthKey] = useState<string>(initialDailyState.calendarMonthKey);
   
-  const [dailyRecords, setDailyRecords] = useState<Record<string, DailyRecord>>(() => readStorage(STORAGE_KEYS.dailyRecords, {}));
+  const [dailyRecords, setDailyRecords] = useState<Record<string, DailyRecord>>(initialDailyState.dailyRecords);
 
   const [customBackgrounds, setCustomBackgrounds] = useState<CustomBgMetadata[]>(() => readStorage(STORAGE_KEYS.customBackgrounds, []));
   const [slideshow, setSlideshow] = useState<SlideshowState>(() => readStorage(STORAGE_KEYS.slideshow, DEFAULT_SLIDESHOW));
