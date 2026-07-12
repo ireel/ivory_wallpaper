@@ -1,9 +1,35 @@
-import { useEffect, useState } from 'react';
+export interface StartupStatus {
+  supported: boolean;
+  enabled: boolean;
+  default_enabled: boolean;
+  mode: string;
+}
+
+export interface RecoveredConfig {
+  dailyRecords?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+interface NativeCommandMap {
+  getStartupStatus: { payload: undefined; result: StartupStatus };
+  setStartupEnabled: { payload: { enabled: boolean }; result: StartupStatus };
+  restartApp: { payload: undefined; result: { restarting: boolean } };
+  syncSystemWallpaperFile: { payload: { path: string }; result: { path: string } };
+  syncSystemWallpaper: { payload: { dataUrl: string }; result: { path: string } };
+  getRecoveredData: { payload: undefined; result: RecoveredConfig | null };
+  logFrontend: { payload: { level: string; message: string; context: string }; result: { logged: boolean } };
+}
 
 // Define the interface for the native bridge response
+export type NativeCommand = keyof NativeCommandMap;
+export type NativeInvoke = <K extends NativeCommand>(
+  command: K,
+  payload?: NativeCommandMap[K]['payload'],
+) => Promise<NativeCommandMap[K]['result']>;
+
 export interface NativeBridge {
   available: boolean;
-  invoke: (command: string, payload?: any) => Promise<any>;
+  invoke: NativeInvoke;
 }
 
 // Define typings for the global object
@@ -12,7 +38,7 @@ declare global {
     IvoryNativeBridge?: {
       create: () => {
         available: boolean;
-        invoke: (command: string, payload?: any) => Promise<any>;
+        invoke: NativeInvoke;
       };
     };
   }
@@ -57,23 +83,31 @@ export function getNativeBridge(): NativeBridge {
             default_enabled: true,
             mode: 'workerw'
           };
-        case 'setStartupEnabled':
-          localStorage.setItem('mock.startupEnabled', String(payload.enabled));
+        case 'setStartupEnabled': {
+          const startupPayload = payload as NativeCommandMap['setStartupEnabled']['payload'];
+          localStorage.setItem('mock.startupEnabled', String(startupPayload.enabled));
           return {
             supported: true,
-            enabled: payload.enabled,
+            enabled: startupPayload.enabled,
             default_enabled: true,
             mode: 'workerw'
           };
+        }
         case 'restartApp':
           console.warn('[MockBridge] restartApp command received.');
           return { restarting: true };
-        case 'syncSystemWallpaperFile':
-          console.log('[MockBridge] Syncing wallpaper path:', payload.path);
-          return { path: payload.path };
+        case 'syncSystemWallpaperFile': {
+          const wallpaperPayload = payload as NativeCommandMap['syncSystemWallpaperFile']['payload'];
+          console.log('[MockBridge] Syncing wallpaper path:', wallpaperPayload.path);
+          return { path: wallpaperPayload.path };
+        }
         case 'syncSystemWallpaper':
           console.log('[MockBridge] Syncing wallpaper dataUrl chunk.');
           return { path: 'mock_path_to_wallpaper.png' };
+        case 'getRecoveredData':
+          return null;
+        case 'logFrontend':
+          return { logged: true };
         default:
           return {};
       }
@@ -84,14 +118,5 @@ export function getNativeBridge(): NativeBridge {
 }
 
 export function useNativeBridge() {
-  const [bridge, setBridge] = useState<NativeBridge>(() => getNativeBridge());
-
-  useEffect(() => {
-    // Poll/check if the bridge becomes available later (e.g. initialization delay)
-    if (!bridge.available && window.IvoryNativeBridge) {
-      setBridge(getNativeBridge());
-    }
-  }, [bridge.available]);
-
-  return bridge;
+  return getNativeBridge();
 }

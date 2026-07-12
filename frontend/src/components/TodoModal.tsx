@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { TodoItem, TetrominoType } from '../utils/tetris';
 import { TETROMINO_COLORS, TETROMINO_SHAPES } from '../utils/tetris';
 import { X, Calendar, Shapes, Check, Trash2 } from 'lucide-react';
@@ -18,21 +18,9 @@ export const TodoModal: React.FC<TodoModalProps> = ({
   onSave,
   onDelete,
 }) => {
-  const [text, setText] = useState('');
-  const [deadline, setDeadline] = useState('');
-  const [shape, setShape] = useState<TetrominoType | 'auto'>('auto');
-
-  useEffect(() => {
-    if (todo) {
-      setText(todo.text);
-      setDeadline(todo.deadline || '');
-      setShape(todo.shape || 'auto');
-    } else {
-      setText('');
-      setDeadline('');
-      setShape('auto');
-    }
-  }, [todo, isOpen]);
+  const [text, setText] = useState(() => todo?.text || '');
+  const [deadline, setDeadline] = useState(() => todo?.deadline || '');
+  const [shape, setShape] = useState<TetrominoType | 'auto'>(() => todo?.shape || 'auto');
 
   if (!isOpen) return null;
 

@@ -87,12 +87,13 @@ function App() {
       </main>
 
       {/* Global settings sidebar modal */}
-      <SettingsModal 
+      {settingsOpen && <SettingsModal
+        key={settingsTab}
         isOpen={settingsOpen} 
         onClose={() => setSettingsOpen(false)} 
         state={wallpaperState} 
         initialTab={settingsTab}
-      />
+      />}
     </>
   );
 }

@@ -63,7 +63,7 @@ pub fn build_workerw_windows(
         ) {
             Ok(result) => {
                 if attempt > 1 {
-                    eprintln!("WorkerW desktop host became available on attempt {attempt}");
+                    tracing::info!(attempt, "WorkerW desktop host became available");
                 }
                 return Ok(result);
             }
@@ -73,10 +73,12 @@ pub fn build_workerw_windows(
                     break;
                 }
 
-                eprintln!(
-                    "WorkerW startup attempt {attempt}/{total} failed: {error:#}; retrying in {delay:?}",
+                tracing::warn!(
+                    attempt,
                     total = WORKERW_STARTUP_RETRY_ATTEMPTS,
-                    delay = WORKERW_STARTUP_RETRY_DELAY
+                    error = %format!("{error:#}"),
+                    delay = ?WORKERW_STARTUP_RETRY_DELAY,
+                    "WorkerW startup attempt failed; retrying"
                 );
                 last_error = Some(error);
                 std::thread::sleep(WORKERW_STARTUP_RETRY_DELAY);
@@ -114,17 +116,6 @@ fn try_build_workerw_windows(
         ));
         window.set_inner_size(PhysicalSize::new(window_width as u32, window_height as u32));
 
-        attach_window_to_desktop_host(
-            &window,
-            target.host,
-            target.left - target.host.left,
-            target.top - target.host.top,
-            target.width,
-            target.height,
-            overscan,
-        )?;
-        window.set_visible(true);
-
         let target_url =
             with_monitor_query(html_url, target.index, target.is_primary, "wallpaper")?;
         let webview = build_webview(
@@ -135,6 +126,18 @@ fn try_build_workerw_windows(
             html_path,
         )?;
         set_webview_physical_bounds(&webview, window_width, window_height)?;
+
+        // WebView2 initialization may update its host window. Attach only after the
+        // controller is fully created so the desktop parent and child style persist.
+        attach_window_to_desktop_host(
+            &window,
+            target.host,
+            target.left - target.host.left,
+            target.top - target.host.top,
+            target.width,
+            target.height,
+            overscan,
+        )?;
         windows.push(ManagedWindow { window, webview });
     }
 
@@ -203,7 +206,7 @@ pub fn ensure_workerw_layout(
     let desktop = match find_desktop_state_v2(false) {
         Ok(desktop) => desktop,
         Err(error) => {
-            eprintln!("WorkerW passive desktop scan failed: {error:#}; asking Explorer to refresh WorkerW");
+            tracing::warn!(error = %format!("{error:#}"), "WorkerW passive scan failed; refreshing");
             find_desktop_state_v2(true)?
         }
     };
@@ -214,14 +217,14 @@ pub fn ensure_workerw_layout(
             return Ok(());
         }
 
-        eprintln!("WorkerW wallpaper window health check failed; repairing desktop attachment");
-        repair_workerw_wallpaper_windows(app, &monitor_targets)?;
-        return Ok(());
+        tracing::warn!("WorkerW window health check failed; rebuilding windows");
+        return rebuild_workerw_windows(app, event_loop, event_loop_proxy, html_url);
     }
 
-    eprintln!(
-        "WorkerW monitor layout changed: {} -> {}; rebuilding wallpaper windows",
-        runtime.monitor_signature, next_signature
+    tracing::info!(
+        previous = %runtime.monitor_signature,
+        current = %next_signature,
+        "WorkerW monitor layout changed; rebuilding windows"
     );
 
     let html_path = app.startup_html_path.clone();
@@ -249,6 +252,38 @@ pub fn ensure_workerw_layout(
 
     app.workerw = Some(workerw);
     Ok(())
+}
+
+fn rebuild_workerw_windows(
+    app: &mut AppRuntime,
+    event_loop: &EventLoopWindowTarget<AppUserEvent>,
+    event_loop_proxy: &EventLoopProxy<AppUserEvent>,
+    html_url: &Url,
+) -> Result<()> {
+    let html_path = app.startup_html_path.clone();
+    let (windows, workerw) = build_workerw_windows(
+        &mut app._web_context, event_loop, event_loop_proxy, html_url, &html_path,
+    )?;
+    let old_windows = std::mem::replace(&mut app.windows, windows);
+    detach_old_windows(old_windows);
+    app.workerw = Some(workerw);
+    Ok(())
+}
+
+fn detach_old_windows(old_windows: Vec<ManagedWindow>) {
+    use tao::platform::windows::WindowExtWindows;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_HIDE, SetParent, ShowWindow};
+
+    for managed in old_windows {
+        let hwnd = HWND(managed.window.hwnd() as *mut core::ffi::c_void);
+        if unsafe { IsWindow(Some(hwnd)).as_bool() } {
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = SetParent(hwnd, None);
+            }
+        }
+    }
 }
 
 fn workerw_wallpaper_windows_healthy(
@@ -283,12 +318,14 @@ fn workerw_wallpaper_windows_healthy(
 
         let overscan = window_overscan(&managed.window);
         let hwnd = HWND(managed.window.hwnd() as *mut core::ffi::c_void);
-        let parent_is_desktop_host = unsafe {
-            GetParent(hwnd)
-                .map(|parent| desktop_hosts.iter().any(|host| parent.0 == host.hwnd.0))
-                .unwrap_or(false)
-        };
-        if !parent_is_desktop_host || !unsafe { IsWindowVisible(hwnd).as_bool() } {
+        let parent = unsafe { GetParent(hwnd).unwrap_or_default() };
+        let parent_is_desktop_host = desktop_hosts.iter().any(|host| parent.0 == host.hwnd.0);
+        let visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+        if !parent_is_desktop_host || !visible {
+            tracing::warn!(
+                hwnd = ?hwnd, parent = ?parent, visible, hosts = desktop_hosts.len(),
+                "WorkerW window parent or visibility is invalid"
+            );
             return Ok(false);
         }
 
@@ -309,6 +346,11 @@ fn workerw_wallpaper_windows_healthy(
             || (actual_width - expected_width).abs() > 2
             || (actual_height - expected_height).abs() > 2
         {
+            tracing::warn!(
+                hwnd = ?hwnd, actual_left = rect.left, actual_top = rect.top,
+                actual_width, actual_height, expected_left, expected_top, expected_width, expected_height,
+                "WorkerW window bounds are invalid"
+            );
             return Ok(false);
         }
     }
@@ -348,7 +390,6 @@ fn repair_workerw_wallpaper_windows(
             target.height,
             overscan,
         )?;
-        managed.window.set_visible(true);
         set_webview_physical_bounds(
             &managed.webview,
             target.width + overscan * 2,
@@ -892,10 +933,7 @@ pub fn toggle_workerw_edit_mode(app: &mut AppRuntime) -> Result<()> {
         }
     }
 
-    eprintln!(
-        "workerw edit mode: {} (press F8 to toggle the interactive editor overlay)",
-        if edit_mode { "ON" } else { "OFF" }
-    );
+    tracing::info!(edit_mode, "WorkerW editor overlay toggled");
 
     Ok(())
 }

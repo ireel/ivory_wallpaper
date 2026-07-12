@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useWallpaperState } from '../hooks/useWallpaperState';
-import type { TodoItem } from '../utils/tetris';
+import type { TodoItem, TetrominoType } from '../utils/tetris';
 import { TETROMINO_COLORS } from '../utils/tetris';
 import { TetrisBoard } from './TetrisBoard';
 import { TodoModal } from './TodoModal';
@@ -33,7 +33,7 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({
     setModalOpen(true);
   };
 
-  const handleSaveTodo = (text: string, deadline: string | null, shape: any) => {
+  const handleSaveTodo = (text: string, deadline: string | null, shape: TetrominoType | 'auto') => {
     if (editingTodo) {
       editTodo(editingTodo.id, text, deadline, shape);
     } else {
@@ -391,13 +391,13 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({
       </div>
 
       {/* Todo Dialog Modal */}
-      <TodoModal
+      {modalOpen && <TodoModal
         isOpen={modalOpen}
         todo={editingTodo}
         onClose={() => setModalOpen(false)}
         onSave={handleSaveTodo}
         onDelete={handleDeleteTodo}
-      />
+      />}
     </section>
   );
 };

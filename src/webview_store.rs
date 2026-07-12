@@ -68,10 +68,10 @@ fn migrate_webview_data_if_needed(target_dir: &Path) -> Result<()> {
             continue;
         }
 
-        eprintln!(
-            "migrating existing WebView2 data from {} to {}",
-            source_dir.display(),
-            target_dir.display()
+        tracing::info!(
+            source = %source_dir.display(),
+            target = %target_dir.display(),
+            "migrating existing WebView2 data"
         );
         copy_directory_recursively(&source_dir, target_dir)?;
         return Ok(());

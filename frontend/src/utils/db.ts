@@ -1,3 +1,5 @@
+import { reportFrontendLog } from './logger';
+
 const DB_NAME = 'ivory_wallpaper_assets';
 const DB_VERSION = 1;
 const STORE_NAME = 'files';
@@ -23,7 +25,7 @@ function openAssetDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function idbSet(key: string, value: any): Promise<void> {
+export async function idbSet<T>(key: string, value: T): Promise<void> {
   const db = await openAssetDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -33,12 +35,12 @@ export async function idbSet(key: string, value: any): Promise<void> {
   });
 }
 
-export async function idbGet(key: string): Promise<any> {
+export async function idbGet<T = Blob>(key: string): Promise<T | null> {
   const db = await openAssetDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const req = tx.objectStore(STORE_NAME).get(key);
-    req.onsuccess = () => resolve(req.result || null);
+    req.onsuccess = () => resolve((req.result as T | undefined) ?? null);
     req.onerror = () => reject(req.error || new Error('IndexedDB get failed'));
   });
 }
@@ -59,9 +61,9 @@ export async function saveCustomBackgroundBlob(blob: Blob): Promise<void> {
 
 export async function loadCustomBackgroundBlob(): Promise<Blob | null> {
   try {
-    return await idbGet(CUSTOM_BG_KEY);
+    return await idbGet<Blob>(CUSTOM_BG_KEY);
   } catch (err) {
-    console.warn('Failed to load custom background blob from IndexedDB:', err);
+    reportFrontendLog('warn', 'Failed to load custom background blob from IndexedDB', err);
     return null;
   }
 }

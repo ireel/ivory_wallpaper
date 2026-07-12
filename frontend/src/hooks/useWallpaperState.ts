@@ -3,6 +3,7 @@ import { getNativeBridge } from './useNativeBridge';
 import type { TodoItem, Coord, TetrominoType } from '../utils/tetris';
 import { getDeterministicShape, calculatePlacement, applyGravity } from '../utils/tetris';
 import { loadCustomBackgroundBlob, saveCustomBackgroundBlob, dataUrlToBlob, idbSet, idbGet, idbDelete } from '../utils/db';
+import { reportFrontendLog } from '../utils/logger';
 
 export interface WeatherState {
   effect: 'sunny' | 'rain' | 'snow' | 'cloudy' | 'foggy' | 'hail' | 'off';
@@ -42,6 +43,31 @@ export interface DailyRecord {
   updatedAt?: string;
 }
 
+interface ImportedConfig {
+  grid?: Partial<GridState>;
+  weather?: Partial<WeatherState>;
+  background?: { id?: string; customFile?: string; custom?: string };
+  selectedDateKey?: string;
+  calendarMonthKey?: string;
+  dailyRecords?: Record<string, unknown>;
+  customBackgrounds?: CustomBgMetadata[];
+  slideshow?: Partial<SlideshowState>;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isTetrominoType(value: unknown): value is TetrominoType {
+  return typeof value === 'string' && ['I', 'O', 'T', 'S', 'Z', 'J', 'L'].includes(value);
+}
+
+function isCoordArray(value: unknown): value is Coord[] {
+  return Array.isArray(value) && value.every(coord => (
+    isObject(coord) && typeof coord.x === 'number' && typeof coord.y === 'number'
+  ));
+}
+
 export const DEFAULT_GRID: GridState = {
   baseWidth: 2560,
   baseHeight: 1440,
@@ -67,6 +93,8 @@ export const DEFAULT_WEATHER: WeatherState = {
   opacity: 0.72,
   coverage: 0.58,
 };
+
+const EMPTY_TODOS: TodoItem[] = [];
 
 export const PRESET_BACKGROUNDS = [
   {
@@ -121,7 +149,7 @@ function readStorage<T>(key: string, fallback: T): T {
   }
 }
 
-function saveStorage(key: string, value: any) {
+function saveStorage(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
@@ -236,7 +264,9 @@ export function useWallpaperState() {
     if (localVal !== null) {
       try {
         return JSON.parse(localVal);
-      } catch {}
+      } catch {
+        // Ignore malformed monitor-specific state and fall back to shared grid settings.
+      }
     }
     return readStorage(STORAGE_KEYS.grid, DEFAULT_GRID);
   });
@@ -251,39 +281,40 @@ export function useWallpaperState() {
 
   // Active day todos
   const currentRecord = dailyRecords[selectedDateKey] || { memo: '', todos: [] };
-  const todos = currentRecord.todos || [];
+  const todos = currentRecord.todos || EMPTY_TODOS;
 
   // Ref to prevent infinite loops on updates
   const syncTimeoutRef = useRef<number | null>(null);
 
   // 2. Load custom background from IndexedDB when backgroundId is custom or starts with custom_
-  const loadCustomBg = useCallback(async (activeId: string, active: boolean) => {
+  const loadCustomBg = useCallback(async (activeId: string): Promise<string | null> => {
     let blob: Blob | null = null;
     if (activeId === 'custom') {
       blob = await loadCustomBackgroundBlob();
     } else if (activeId.startsWith('custom_')) {
       blob = await idbGet(`custom-bg-${activeId}`);
     }
-    if (blob && active) {
-      const url = URL.createObjectURL(blob);
-      setBackgroundCustomUrl(prev => {
-        if (prev && prev.startsWith('blob:')) {
-          URL.revokeObjectURL(prev);
-        }
-        return url;
-      });
-    }
+    return blob ? URL.createObjectURL(blob) : null;
+  }, []);
+
+  const applyCustomBgUrl = useCallback((url: string) => {
+    setBackgroundCustomUrl(prev => {
+      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return url;
+    });
   }, []);
 
   useEffect(() => {
     let active = true;
     if (backgroundId === 'custom' || backgroundId.startsWith('custom_')) {
-      loadCustomBg(backgroundId, active);
+      void loadCustomBg(backgroundId).then(url => {
+        if (active && url) applyCustomBgUrl(url);
+      });
     }
     return () => {
       active = false;
     };
-  }, [backgroundId, loadCustomBg]);
+  }, [applyCustomBgUrl, backgroundId, loadCustomBg]);
 
   // 3. Grid metric CSS variables application
   useEffect(() => {
@@ -414,7 +445,7 @@ export function useWallpaperState() {
       const dataUrl = canvas.toDataURL('image/png');
       await nativeBridge.invoke('syncSystemWallpaper', { dataUrl });
     } catch (err) {
-      console.warn('System wallpaper sync failed:', err);
+      reportFrontendLog('warn', 'System wallpaper sync failed', err);
     }
   }, [nativeBridge]);
 
@@ -462,7 +493,7 @@ export function useWallpaperState() {
         persistState('custom', '', weather, grid, selectedDateKey, calendarMonthKey, dailyRecords);
         localStorage.setItem("ivory.background.custom.updatedAt", String(Date.now()));
       } catch (err) {
-        console.error('Custom image upload failed, falling back to data URL:', err);
+        reportFrontendLog('error', 'Custom image upload failed; using data URL fallback', err);
         // Fallback inline dataUrl
         const reader = new FileReader();
         reader.onload = () => {
@@ -488,7 +519,7 @@ export function useWallpaperState() {
         setBackgroundId(id);
         persistState(id, '', weather, grid, selectedDateKey, calendarMonthKey, dailyRecords);
       } else {
-        console.warn('Custom background blob not found for ID:', id);
+        reportFrontendLog('warn', 'Custom background blob not found', { id });
         setBackgroundId('coastline');
         persistState('coastline', backgroundCustomFile, weather, grid, selectedDateKey, calendarMonthKey, dailyRecords);
       }
@@ -681,7 +712,9 @@ export function useWallpaperState() {
   }, [backgroundId, backgroundCustomFile, weather, grid, selectedDateKey, calendarMonthKey, persistState]);
 
   // Import configuration
-  const importConfig = useCallback(async (config: any) => {
+  const importConfig = useCallback(async (rawConfig: unknown) => {
+    if (!isObject(rawConfig)) throw new Error('Invalid configuration object');
+    const config = rawConfig as ImportedConfig;
     let nextBgId = backgroundId;
     let nextBgFile = backgroundCustomFile;
     let nextWeather = weather;
@@ -713,7 +746,7 @@ export function useWallpaperState() {
           const url = URL.createObjectURL(blob);
           setBackgroundCustomUrl(url);
         } catch (err) {
-          console.warn('Importing custom background failed:', err);
+          reportFrontendLog('warn', 'Importing custom background failed', err);
         }
       }
     }
@@ -729,19 +762,19 @@ export function useWallpaperState() {
       // Normalize imported records
       const normalizedRecords: Record<string, DailyRecord> = {};
       for (const [dateKey, record] of Object.entries(config.dailyRecords)) {
-        if (!record || typeof record !== 'object') continue;
-        const rawTodos = (record as any).todos || [];
+        if (!isObject(record)) continue;
+        const rawTodos = Array.isArray(record.todos) ? record.todos : [];
         const normalizedTodos: TodoItem[] = [];
         const activePlacedCoords: Coord[] = [];
         
         for (const todo of rawTodos) {
-          if (!todo) continue;
-          const completed = todo.completed ?? todo.done ?? false;
-          const text = todo.text || '';
-          const deadline = todo.deadline || '';
-          const shape = todo.shape || getDeterministicShape(text, deadline);
+          if (!isObject(todo)) continue;
+          const completed = Boolean(todo.completed ?? todo.done ?? false);
+          const text = typeof todo.text === 'string' ? todo.text : '';
+          const deadline = typeof todo.deadline === 'string' ? todo.deadline : '';
+          const shape = isTetrominoType(todo.shape) ? todo.shape : getDeterministicShape(text, deadline);
           
-          let placedCoords = todo.placedCoords;
+          let placedCoords = isCoordArray(todo.placedCoords) ? todo.placedCoords : undefined;
           if (!completed) {
             if (!placedCoords || placedCoords.length === 0) {
               placedCoords = calculatePlacement(shape, activePlacedCoords);
@@ -749,6 +782,9 @@ export function useWallpaperState() {
             activePlacedCoords.push(...placedCoords);
           } else {
             placedCoords = [];
+          }
+          if (typeof todo.id !== 'string') {
+            todo.id = 'todo_' + Date.now() + '_' + Math.random().toString(16).slice(2, 6);
           }
           
           normalizedTodos.push({
@@ -758,13 +794,13 @@ export function useWallpaperState() {
             deadline,
             shape,
             placedCoords,
-          });
+          } as TodoItem);
         }
         
         normalizedRecords[dateKey] = {
-          memo: (record as any).memo || '',
+          memo: typeof record.memo === 'string' ? record.memo : '',
           todos: normalizedTodos,
-          updatedAt: (record as any).updatedAt || new Date().toISOString(),
+          updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : new Date().toISOString(),
         };
       }
       nextRecords = normalizedRecords;
@@ -810,10 +846,12 @@ export function useWallpaperState() {
         } else if (e.key === STORAGE_KEYS.selectedDateKey) {
           setSelectedDateKey(val ?? getTodayKey());
         } else if (e.key === "ivory.background.custom.updatedAt") {
-          loadCustomBg(backgroundId, true);
+          void loadCustomBg(backgroundId).then(url => {
+            if (url) applyCustomBgUrl(url);
+          });
         }
       } catch (err) {
-        console.warn('Passive state sync failed on storage event:', err);
+        reportFrontendLog('warn', 'Passive state sync failed on storage event', err);
       }
     };
 
@@ -821,7 +859,7 @@ export function useWallpaperState() {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [loadCustomBg, viewContext.monitorIndex, backgroundId]);
+  }, [applyCustomBgUrl, loadCustomBg, viewContext.monitorIndex, backgroundId]);
 
   // 8. Fetch recovered data on mount if available via native bridge
   useEffect(() => {
@@ -832,11 +870,11 @@ export function useWallpaperState() {
       try {
         const response = await nativeBridge.invoke('getRecoveredData');
         if (active && response && response.dailyRecords && Object.keys(response.dailyRecords).length > 0) {
-          console.log('[useWallpaperState] Received recovered data, importing...', response);
+          reportFrontendLog('info', 'Recovered data received; importing');
           await importConfig(response);
         }
       } catch (err) {
-        console.warn('[useWallpaperState] Failed to fetch recovered data:', err);
+        reportFrontendLog('warn', 'Failed to fetch recovered data', err);
       }
     }
     
@@ -870,7 +908,7 @@ export function useWallpaperState() {
       // Automatically set as active background
       await changeBackground(id, undefined, true);
     } catch (err) {
-      console.error('Failed to upload custom background:', err);
+      reportFrontendLog('error', 'Failed to upload custom background', err);
     }
   }, [changeBackground]);
 
@@ -899,7 +937,7 @@ export function useWallpaperState() {
         await changeBackground('coastline', undefined, true);
       }
     } catch (err) {
-      console.error('Failed to delete custom background:', err);
+      reportFrontendLog('error', 'Failed to delete custom background', err);
     }
   }, [backgroundId, changeBackground, slideshow]);
 

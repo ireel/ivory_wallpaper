@@ -18,6 +18,7 @@ use url::Url;
 use wry::{WebContext, WebViewBuilder};
 
 mod native_bridge;
+mod logging;
 mod startup;
 mod webview_store;
 #[cfg(target_os = "windows")]
@@ -69,6 +70,12 @@ enum AppUserEvent {
         path: String,
     },
     GetRecoveredData { id: String },
+    FrontendLog {
+        id: String,
+        level: String,
+        message: String,
+        context: String,
+    },
     #[serde(skip)]
     ToggleEditMode,
     #[serde(skip)]
@@ -110,8 +117,16 @@ struct AppRuntime {
 }
 
 fn main() {
+    let logging_guard = match logging::init_logging() {
+        Ok(guard) => guard,
+        Err(error) => {
+            eprintln!("failed to initialize logging: {error:#}");
+            std::process::exit(1);
+        }
+    };
+    tracing::info!(log_directory = %logging_guard.directory.display(), "application starting");
     if let Err(error) = run() {
-        eprintln!("ivory_wallpaper_runtime error: {error:#}");
+        tracing::error!(error = %format!("{error:#}"), "application terminated with an error");
         std::process::exit(1);
     }
 }
@@ -125,12 +140,12 @@ fn run() -> Result<()> {
 
     #[cfg(target_os = "windows")]
     if let Err(error) = sync_launch_at_startup_preference(&options.html_path) {
-        eprintln!("launch-at-startup sync failed: {error:#}");
+        tracing::warn!(error = %format!("{error:#}"), "launch-at-startup sync failed");
     }
 
     #[cfg(target_os = "windows")]
     if let Err(error) = sync_fixed_config_system_wallpaper() {
-        eprintln!("fixed-config system wallpaper sync failed: {error:#}");
+        tracing::warn!(error = %format!("{error:#}"), "fixed-config system wallpaper sync failed");
     }
 
     let event_loop = EventLoopBuilder::<AppUserEvent>::with_user_event().build();
@@ -150,7 +165,7 @@ fn run() -> Result<()> {
                     MOD_NOREPEAT,
                     VK_F8.0 as u32,
                 ).is_err() {
-                    eprintln!("Failed to register F8 hotkey thread");
+                    tracing::error!("failed to register F8 hotkey thread");
                     return;
                 }
 
@@ -196,18 +211,18 @@ fn run() -> Result<()> {
                     AppUserEvent::ToggleEditMode => {
                         #[cfg(target_os = "windows")]
                         if let Err(error) = workerw::toggle_workerw_edit_mode(&mut runtime) {
-                            eprintln!("failed to toggle edit mode: {error:#}");
+                            tracing::error!(error = %format!("{error:#}"), "failed to toggle edit mode");
                         }
                     }
                     AppUserEvent::CheckLayout => {
                         #[cfg(target_os = "windows")]
                         if let Err(error) = ensure_workerw_layout(&mut runtime, event_loop, &event_loop_proxy, &html_url) {
-                            eprintln!("workerw layout refresh failed: {error:#}");
+                            tracing::warn!(error = %format!("{error:#}"), "workerw layout refresh failed");
                         }
                     }
                     _ => {
                         if let Err(error) = handle_user_event(&mut runtime, event) {
-                            eprintln!("native event failed: {error:#}");
+                            tracing::error!(error = %format!("{error:#}"), "native event failed");
                         }
                     }
                 }
@@ -360,12 +375,13 @@ fn build_webview(
                     match parse_native_navigation_event(&navigation_url) {
                         Ok(Some(event)) => {
                             if let Err(error) = proxy.send_event(event) {
-                                  eprintln!("failed to forward native navigation event: {error}");
+                                  tracing::error!(error = %error, "failed to forward native navigation event");
                             }
                             false
                         }
                         Ok(None) => true,
                         Err(error) => {
+                            tracing::warn!(url = %navigation_url, error = %format!("{error:#}"), "invalid native navigation");
                             eprintln!("invalid native navigation `{navigation_url}`: {error:#}");
                             false
                         }
@@ -380,7 +396,7 @@ fn build_webview(
                 if attempts >= 15 {
                     return Err(error).context("failed to build webview after 15 attempts");
                 }
-                eprintln!("WebView2 build attempt {attempts} failed: {error:?}; retrying in 200ms...");
+                tracing::warn!(attempt = attempts, error = ?error, "WebView2 build failed; retrying");
                 std::thread::sleep(Duration::from_millis(200));
             }
         }

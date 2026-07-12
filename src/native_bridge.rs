@@ -27,6 +27,9 @@ pub fn parse_native_navigation_event(navigation_url: &str) -> Result<Option<AppU
     let mut path = None::<String>;
     let mut index = None::<usize>;
     let mut total = None::<usize>;
+    let mut level = None::<String>;
+    let mut message = None::<String>;
+    let mut log_context = None::<String>;
 
     let is_custom_scheme = parsed.scheme() == NATIVE_NAVIGATION_SCHEME && parsed.host_str() == Some(NATIVE_NAVIGATION_HOST);
 
@@ -42,6 +45,9 @@ pub fn parse_native_navigation_event(navigation_url: &str) -> Result<Option<AppU
             "path" => path = Some(value.into_owned()),
             "index" => index = value.parse().ok(),
             "total" => total = value.parse().ok(),
+            "level" => level = Some(value.into_owned()),
+            "message" => message = Some(value.into_owned()),
+            "context" => log_context = Some(value.into_owned()),
             NATIVE_QUERY_COMMAND_KEY => command = Some(value.into_owned()),
             NATIVE_QUERY_ID_KEY => id = Some(value.into_owned()),
             NATIVE_QUERY_ENABLED_KEY => {
@@ -90,6 +96,12 @@ pub fn parse_native_navigation_event(navigation_url: &str) -> Result<Option<AppU
             path: path.context("missing path query parameter")?,
         },
         "getRecoveredData" => AppUserEvent::GetRecoveredData { id },
+        "logFrontend" => AppUserEvent::FrontendLog {
+            id,
+            level: level.unwrap_or_else(|| "info".into()),
+            message: message.context("missing message query parameter")?,
+            context: log_context.unwrap_or_default(),
+        },
         _ => bail!("unknown command: {command}"),
     };
 
@@ -182,16 +194,20 @@ pub fn handle_user_event(runtime: &mut AppRuntime, event: AppUserEvent) -> Resul
                                 send_ipc_ok(runtime, id, parsed)?;
                             }
                             Err(err) => {
-                                eprintln!("failed to parse recovered data json: {err}");
+                                tracing::error!(error = %err, "failed to parse recovered data json");
                                 send_ipc_ok(runtime, id, serde_json::Value::Null)?;
                             }
                         }
                     }
                     Err(err) => {
-                        eprintln!("failed to read recovered data file: {err}");
+                        tracing::error!(error = %err, "failed to read recovered data file");
                         send_ipc_ok(runtime, id, serde_json::Value::Null)?;
                     }
                 }
+            }
+            AppUserEvent::FrontendLog { id, level, message, context } => {
+                write_frontend_log(&level, &message, &context);
+                send_ipc_ok(runtime, id, serde_json::json!({ "logged": true }))?;
             }
             AppUserEvent::ToggleEditMode | AppUserEvent::CheckLayout => {}
         }
@@ -219,6 +235,10 @@ pub fn handle_user_event(runtime: &mut AppRuntime, event: AppUserEvent) -> Resul
             }
             AppUserEvent::GetRecoveredData { id } => {
                 send_ipc_ok(runtime, id, serde_json::Value::Null)?;
+            }
+            AppUserEvent::FrontendLog { id, level, message, context } => {
+                write_frontend_log(&level, &message, &context);
+                send_ipc_ok(runtime, id, serde_json::json!({ "logged": true }))?;
             }
             AppUserEvent::ToggleEditMode | AppUserEvent::CheckLayout => {}
         }
@@ -345,7 +365,7 @@ fn broadcast_ipc_response<T: Serialize>(runtime: &AppRuntime, response: &IpcResp
     }
 
     if let Some(error) = last_error {
-        eprintln!("IPC response delivery had at least one failure: {error}");
+        tracing::error!(error = %error, "IPC response delivery had at least one failure");
     }
 
     Ok(())
@@ -367,4 +387,13 @@ fn restart_current_process() -> Result<()> {
 
     command.spawn().context("failed to start replacement process")?;
     std::process::exit(0);
+}
+
+fn write_frontend_log(level: &str, message: &str, context: &str) {
+    match level {
+        "error" => tracing::error!(target: "frontend", context, "{message}"),
+        "warn" => tracing::warn!(target: "frontend", context, "{message}"),
+        "debug" => tracing::debug!(target: "frontend", context, "{message}"),
+        _ => tracing::info!(target: "frontend", context, "{message}"),
+    }
 }

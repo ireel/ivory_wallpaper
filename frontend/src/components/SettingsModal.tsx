@@ -3,6 +3,7 @@ import type { WeatherState, CustomBgMetadata } from '../hooks/useWallpaperState'
 import { useWallpaperState, PRESET_BACKGROUNDS } from '../hooks/useWallpaperState';
 import { X, Palette, Cloud, Grid, Power, Database, Calendar, RefreshCw, ChevronLeft, ChevronRight, Upload, FileDown, RotateCcw, Trash2 } from 'lucide-react';
 import { loadCustomBackgroundBlob, blobToDataUrl, idbGet } from '../utils/db';
+import { reportFrontendLog } from '../utils/logger';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,6 +14,15 @@ interface SettingsModalProps {
 
 type TabType = 'background' | 'weather' | 'grid' | 'startup' | 'data' | 'calendar';
 
+function parseDateKey(dateKey: string) {
+  const [year, month] = dateKey.split('-').map(Number);
+  const now = new Date();
+  return {
+    year: Number.isFinite(year) ? year : now.getFullYear(),
+    month: Number.isFinite(month) ? month - 1 : now.getMonth(),
+  };
+}
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -21,21 +31,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   
-  // Update active tab when modal is opened with a specific tab
-  useEffect(() => {
-    if (isOpen) {
-      setActiveTab(initialTab);
-    }
-  }, [isOpen, initialTab]);
-
   // Startup launch preferences
   const [startupSupported, setStartupSupported] = useState(false);
   const [startupEnabled, setStartupEnabled] = useState(false);
   const [startupLoading, setStartupLoading] = useState(true);
 
   // Calendar state
-  const [calendarYear, setCalendarYear] = useState<number>(() => new Date().getFullYear());
-  const [calendarMonth, setCalendarMonth] = useState<number>(() => new Date().getMonth()); // 0-indexed
+  const initialCalendar = parseDateKey(state.selectedDateKey);
+  const [calendarYear, setCalendarYear] = useState(initialCalendar.year);
+  const [calendarMonth, setCalendarMonth] = useState(initialCalendar.month); // 0-indexed
   const [calSelectedDate, setCalSelectedDate] = useState<string>(() => state.selectedDateKey);
 
   // Slideshow dynamic Blob URL cache state
@@ -54,7 +58,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             urls[bg.id] = URL.createObjectURL(blob);
           }
         } catch (e) {
-          console.warn('Failed to load blob URL for custom bg:', bg.id, e);
+          reportFrontendLog('warn', 'Failed to load custom background preview', { id: bg.id, error: e });
         }
       }
       if (active) {
@@ -94,7 +98,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             setStartupEnabled(res.enabled);
           }
         } catch (err) {
-          console.warn('Failed to fetch startup settings:', err);
+          reportFrontendLog('warn', 'Failed to fetch startup settings', err);
         } finally {
           setStartupLoading(false);
         }
@@ -102,16 +106,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       fetchStartup();
     }
   }, [activeTab, isOpen, state.nativeBridge]);
-
-  // Sync calendar view month to selected date
-  useEffect(() => {
-    const parts = state.selectedDateKey.split('-');
-    if (parts.length === 3) {
-      setCalendarYear(parseInt(parts[0]));
-      setCalendarMonth(parseInt(parts[1]) - 1);
-      setCalSelectedDate(state.selectedDateKey);
-    }
-  }, [state.selectedDateKey, isOpen]);
 
   if (!isOpen) return null;
 
@@ -124,7 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setStartupEnabled(res.enabled);
       }
     } catch (err) {
-      console.warn('Failed to save startup settings:', err);
+      reportFrontendLog('warn', 'Failed to save startup settings', err);
       // Fallback toggling locally in mock
       setStartupEnabled(target);
     } finally {
@@ -163,7 +157,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       document.body.removeChild(link);
       URL.revokeObjectURL(fileUrl);
     } catch (err) {
-      console.error('Export configuration failed:', err);
+      reportFrontendLog('error', 'Export configuration failed', err);
       alert('备份配置导出失败');
     }
   };
@@ -179,7 +173,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         await state.importConfig(config);
         alert('配置加载成功！');
       } catch (err) {
-        console.error('Import failed:', err);
+        reportFrontendLog('error', 'Import configuration failed', err);
         alert('配置文件解析失败，请确保格式正确。');
       }
     };

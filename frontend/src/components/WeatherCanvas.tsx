@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { reportFrontendLog } from '../utils/logger';
 
 export interface WeatherState {
   effect: 'sunny' | 'rain' | 'snow' | 'cloudy' | 'foggy' | 'hail' | 'off';
@@ -13,15 +14,17 @@ interface WeatherCanvasProps {
   weather: WeatherState;
 }
 
+interface WeatherRenderer {
+  apply: (weather: Omit<WeatherState, 'effect'> & { effect: WeatherState['effect'] | 'none' }) => void;
+  resize: () => void;
+  destroy: () => void;
+  recover?: () => void;
+}
+
 declare global {
   interface Window {
     IvoryWeatherRenderer?: {
-      create: (options: { elements: { weatherCanvas: HTMLCanvasElement | null } }) => {
-        apply: (weather: any) => void;
-        resize: () => void;
-        destroy: () => void;
-        recover?: () => void;
-      };
+      create: (options: { elements: { weatherCanvas: HTMLCanvasElement | null } }) => WeatherRenderer;
     };
   }
 }
@@ -33,7 +36,7 @@ function clampFloat(value: number, min: number, max: number, fixed = 2): number 
 
 export const WeatherCanvas: React.FC<WeatherCanvasProps> = ({ weather }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rendererRef = useRef<any>(null);
+  const rendererRef = useRef<WeatherRenderer | null>(null);
 
   useEffect(() => {
     // 1. Initialize canvas and renderer
@@ -45,7 +48,7 @@ export const WeatherCanvas: React.FC<WeatherCanvasProps> = ({ weather }) => {
           },
         });
       } catch (err) {
-        console.error("Failed to create IvoryWeatherRenderer:", err);
+        reportFrontendLog('error', 'Failed to create IvoryWeatherRenderer', err);
       }
     }
 
